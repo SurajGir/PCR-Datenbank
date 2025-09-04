@@ -1,0 +1,624 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Edit Sample - {{ sample.mikrogen_internal_number }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Edit Sample: {{ sample.mikrogen_internal_number }}</h5>
+                </div>
+                <div class="card-body">
+                    <form method="POST" action="{% url 'core:edit_sample' sample.mikrogen_internal_number %}">
+                        {% csrf_token %}
+
+                        <!-- 1. General Section -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0">1. General Information</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label for="mikrogen_internal_number" class="form-label">Mikrogen Internal Number *</label>
+                                        <input type="text" class="form-control" id="mikrogen_internal_number" value="{{ sample.mikrogen_internal_number }}" readonly>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="provider_number" class="form-label">Provider Number</label>
+                                        <input type="text" class="form-control" id="provider_number" name="provider_number" value="{{ sample.provider_number|default:'' }}">
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="target" class="form-label">Target *</label>
+                                        <select class="form-select" id="target" name="target" required>
+                                            {% for target in targets %}
+                                                <option value="{{ target.id }}" {% if target.id == sample.target.id %}selected{% endif %}>{{ target.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label for="storage_place" class="form-label">Storage Place</label>
+                                        <select class="form-select" id="storage_place" name="storage_place">
+                                            <option value="">Select Storage Place</option>
+                                            {% for place in storage_places %}
+                                                <option value="{{ place.id }}" {% if sample.storage_place and place.id == sample.storage_place.id %}selected{% endif %}>{{ place.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 2. Sample Info Section -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0">2. Sample Information</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label for="sample_type" class="form-label">Sample Type *</label>
+                                        <select class="form-select" id="sample_type" name="sample_type" required>
+                                            {% for type in sample_types %}
+                                                <option value="{{ type.id }}" {% if type.id == sample.sample_type.id %}selected{% endif %}>{{ type.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="provider" class="form-label">Provider *</label>
+                                        <select class="form-select" id="provider" name="provider" required>
+                                            {% for provider in providers %}
+                                                <option value="{{ provider.id }}" {% if provider.id == sample.provider.id %}selected{% endif %}>{{ provider.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="date_of_draw" class="form-label">Date of Draw</label>
+                                        <input type="date" class="form-control" id="date_of_draw" name="date_of_draw" value="{% if sample.date_of_draw %}{{ sample.date_of_draw|date:'Y-m-d' }}{% endif %}">
+                                    </div>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-4 mb-3">
+                                        <label for="age" class="form-label">Age</label>
+                                        <input type="number" class="form-control" id="age" name="age" min="0" max="120" value="{{ sample.age|default:'' }}">
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="gender" class="form-label">Gender</label>
+                                        <select class="form-select" id="gender" name="gender">
+                                            <option value="">Select Gender</option>
+                                            <option value="male" {% if sample.gender == 'male' %}selected{% endif %}>Male</option>
+                                            <option value="female" {% if sample.gender == 'female' %}selected{% endif %}>Female</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4 mb-3">
+                                        <label for="country_of_origin" class="form-label">Country of Origin</label>
+                                        <input type="text" class="form-control" id="country_of_origin" name="country_of_origin" value="{{ sample.country_of_origin|default:'' }}">
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 3. Extraction Section -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0">3. Extraction</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="extraction_date" class="form-label">Extraction Date</label>
+                                        <input type="date" class="form-control" id="extraction_date" name="extraction_date" value="{% if sample.extraction_date %}{{ sample.extraction_date|date:'Y-m-d' }}{% endif %}">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="extractor" class="form-label">Extractor</label>
+                                        <select class="form-select" id="extractor" name="extractor">
+                                            <option value="">Select Extractor</option>
+                                            {% for extractor in extractors %}
+                                                <option value="{{ extractor.id }}" {% if sample.extractor and extractor.id == sample.extractor.id %}selected{% endif %}>{{ extractor.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 4. PCR Section -->
+                        <div class="card mb-4">
+                           <div class="card-header bg-secondary text-white">
+                               <h6 class="mb-0">4. PCR</h6>
+                           </div>
+                           <div class="card-body">
+                               <div class="row">
+                                   <div class="col-md-4 mb-3">
+                                       <label for="cycler" class="form-label">Cycler</label>
+                                       <select class="form-select" id="cycler" name="cycler">
+                                           <option value="">Select Cycler</option>
+                                           {% for cycler in cyclers %}
+                                               <option value="{{ cycler.id }}" {% if sample.cycler and cycler.id == sample.cycler.id %}selected{% endif %}>{{ cycler.name }}</option>
+                                           {% endfor %}
+                                       </select>
+                                   </div>
+                               </div>
+
+                               <div class="row">
+                                   <div class="col-md-6">
+                                       <h6 class="mb-3">Mikrogen</h6>
+                                       <div class="mb-3">
+                                           <label for="mikrogen_pcr_kit" class="form-label">PCR Kit</label>
+                                           <select class="form-select" id="mikrogen_pcr_kit" name="mikrogen_pcr_kit">
+                                               <option value="">Select PCR Kit</option>
+                                               {% for kit in mikrogen_kits %}
+                                                   <option value="{{ kit.id }}" {% if sample.mikrogen_pcr_kit and kit.id == sample.mikrogen_pcr_kit.id %}selected{% endif %}>{{ kit.name }}</option>
+                                               {% endfor %}
+                                           </select>
+                                       </div>
+                                       <div class="mb-3">
+                                           <label for="mikrogen_ct_value" class="form-label">CT Value</label>
+                                           <input type="number" step="0.1" class="form-control" id="mikrogen_ct_value" name="mikrogen_ct_value" value="{{ sample.mikrogen_ct_value|default:'' }}">
+                                       </div>
+                                   </div>
+
+                                   <div class="col-md-6">
+                                       <h6 class="mb-3">External</h6>
+                                       <div class="mb-3">
+                                           <label for="external_pcr_kit" class="form-label">PCR Kit</label>
+                                           <select class="form-select" id="external_pcr_kit" name="external_pcr_kit">
+                                               <option value="">Select PCR Kit</option>
+                                               {% for kit in external_kits %}
+                                                   <option value="{{ kit.id }}" {% if sample.external_pcr_kit and kit.id == sample.external_pcr_kit.id %}selected{% endif %}>{{ kit.name }}</option>
+                                               {% endfor %}
+                                           </select>
+                                       </div>
+                                       <div class="mb-3">
+                                           <label for="external_ct_value" class="form-label">CT Value</label>
+                                           <input type="number" step="0.1" class="form-control" id="external_ct_value" name="external_ct_value" value="{{ sample.external_ct_value|default:'' }}">
+                                       </div>
+                                   </div>
+                               </div>
+
+                               <div class="row mt-3">
+                                    <div class="col-12">
+                                        <div class="card">
+                                            <div class="card-header">
+                                                <h6 class="mb-0">Target Status</h6>
+                                            </div>
+                                            <div class="card-body">
+                                                <div class="row">
+                                                    <div class="col-md-6">
+                                                        <h7>Positive Targets</h7>
+                                                        <div class="list-group" id="positive-targets">
+                                                            {% for target in sample.positive_targets %}
+                                                                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                                                    {{ target }}
+                                                                    <input type="hidden" name="positive_targets" value="{{ target }}">
+                                                                    <button type="button" class="btn btn-sm btn-danger remove-target">Remove</button>
+                                                                </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <h7>Negative Targets</h7>
+                                                        <div class="list-group" id="negative-targets">
+                                                            {% for target in sample.negative_targets %}
+                                                                <div class="list-group-item list-group-item-action d-flex justify-content-between align-items-center">
+                                                                    {{ target }}
+                                                                    <input type="hidden" name="negative_targets" value="{{ target }}">
+                                                                    <button type="button" class="btn btn-sm btn-danger remove-target">Remove</button>
+                                                                </div>
+                                                            {% endfor %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                <div class="row mt-3">
+                                                    <div class="col-md-6">
+                                                        <div class="input-group">
+                                                            <select id="positive-target-select" class="form-select">
+                                                                {% for target in targets %}
+                                                                    <option value="{{ target.name }}">{{ target.name }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                            <button id="add-positive-target" class="btn btn-primary">Add Positive</button>
+                                                        </div>
+                                                        <!-- New target creation for positive targets -->
+                                                        <div class="mt-2">
+                                                            <div class="input-group">
+                                                                <input type="text" id="new-positive-target" class="form-control" placeholder="New target name">
+                                                                <button id="create-positive-target" class="btn btn-success">Create & Add</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <div class="input-group">
+                                                            <select id="negative-target-select" class="form-select">
+                                                                {% for target in targets %}
+                                                                    <option value="{{ target.name }}">{{ target.name }}</option>
+                                                                {% endfor %}
+                                                            </select>
+                                                            <button id="add-negative-target" class="btn btn-primary">Add Negative</button>
+                                                        </div>
+                                                        <div class="mt-2">
+                                                            <div class="input-group">
+                                                                <input type="text" id="new-negative-target" class="form-control" placeholder="New target name">
+                                                                <button id="create-negative-target" class="btn btn-success">Create & Add</button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+
+                        <!-- 5. Volume Section -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0">5. Volume</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="sample_volume" class="form-label">Sample Volume (ml) *</label>
+                                        <input type="number" step="0.1" class="form-control" id="sample_volume" name="sample_volume" value="{{ sample.sample_volume }}" required>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="sample_volume_remaining" class="form-label">Remaining Volume (ml)</label>
+                                        <input type="number" step="0.1" class="form-control" value="{{ sample.sample_volume_remaining }}" readonly>
+                                        <small class="form-text text-muted">Remaining volume is calculated automatically based on usage.</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 6. User Section -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0">6. User</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <p>Added by: <strong>{{ sample.added_by.username }}</strong></p>
+                                        <p>Added on: <strong>{{ sample.date_added }}</strong></p>
+                                        <p>Last modified: <strong>{{ sample.last_modified }}</strong></p>
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <p>Current user: <strong>{{ sample.current_user.username|default:"Not in use" }}</strong></p>
+                                        <p>Status:
+                                            <strong>
+                                                {% if sample.in_use %}
+                                                    <span class="text-warning">In use</span>
+                                                {% else %}
+                                                    <span class="text-success">Available</span>
+                                                {% endif %}
+                                            </strong>
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 7. Notes Section -->
+                        <div class="card mb-4">
+                            <div class="card-header bg-secondary text-white">
+                                <h6 class="mb-0">7. Notes</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="row">
+                                    <div class="col-12 mb-3">
+                                        <label for="notes" class="form-label">Notes</label>
+                                        <textarea class="form-control" id="notes" name="notes" rows="3">{{ sample.notes|default:'' }}</textarea>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="row">
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">Save Changes</button>
+                                <a href="{% url 'core:sample_detail' sample.mikrogen_internal_number %}" class="btn btn-secondary">Cancel</a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+{{ block.super }}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Storage location cascade dropdowns
+    const roomSelect = document.getElementById('room');
+    const freezerSelect = document.getElementById('freezer');
+    const drawerSelect = document.getElementById('drawer');
+    const boxSelect = document.getElementById('box');
+
+    if (roomSelect) {
+        // Room change
+        roomSelect.addEventListener('change', function() {
+            const roomId = this.value;
+
+            freezerSelect.innerHTML = '<option value="">Select Freezer</option>';
+            freezerSelect.disabled = !roomId;
+
+            drawerSelect.innerHTML = '<option value="">Select Drawer</option>';
+            drawerSelect.disabled = true;
+
+            boxSelect.innerHTML = '<option value="">Select Box</option>';
+            boxSelect.disabled = true;
+
+            if (roomId) {
+                fetchStoragePlaces('freezer', roomId, freezerSelect);
+            }
+        });
+
+        // Freezer change
+        freezerSelect.addEventListener('change', function() {
+            const freezerId = this.value;
+
+            drawerSelect.innerHTML = '<option value="">Select Drawer</option>';
+            drawerSelect.disabled = !freezerId;
+
+            boxSelect.innerHTML = '<option value="">Select Box</option>';
+            boxSelect.disabled = true;
+
+            if (freezerId) {
+                fetchStoragePlaces('drawer', freezerId, drawerSelect);
+            }
+        });
+
+        // Drawer change
+        drawerSelect.addEventListener('change', function() {
+            const drawerId = this.value;
+
+            boxSelect.innerHTML = '<option value="">Select Box</option>';
+            boxSelect.disabled = !drawerId;
+
+            if (drawerId) {
+                fetchStoragePlaces('box', drawerId, boxSelect);
+            }
+        });
+
+        // Function to fetch storage places
+        function fetchStoragePlaces(type, parentId, selectElement) {
+            selectElement.disabled = true;
+
+            fetch(`{% url 'core:get_storage_places' %}?type=${type}&parent=${parentId}`)
+                .then(response => response.json())
+                .then(data => {
+                    selectElement.innerHTML = `<option value="">Select ${type.charAt(0).toUpperCase() + type.slice(1)}</option>`;
+
+                    data.forEach(place => {
+                        const option = document.createElement('option');
+                        option.value = place.id;
+                        option.textContent = place.name;
+                        selectElement.appendChild(option);
+                    });
+
+                    selectElement.disabled = false;
+                })
+                .catch(error => {
+                    console.error('Error fetching storage places:', error);
+                    selectElement.disabled = false;
+                });
+        }
+    }
+
+    // Target management
+    function setupRemoveTargets() {
+        document.querySelectorAll('.remove-target').forEach(button => {
+            button.addEventListener('click', function() {
+                this.closest('.list-group-item').remove();
+            });
+        });
+    }
+
+   document.getElementById('add-positive-target').addEventListener('click', function(e) {
+        e.preventDefault(); // Prevent form submission
+        const select = document.getElementById('positive-target-select');
+        const targetName = select.value;
+        const container = document.getElementById('positive-targets');
+
+        const existingTargets = Array.from(container.querySelectorAll('input[name="positive_targets"]'))
+            .map(input => input.value);
+
+        if (!existingTargets.includes(targetName)) {
+            const newItem = document.createElement('div');
+            newItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+            newItem.innerHTML = `
+                ${targetName}
+                <input type="hidden" name="positive_targets" value="${targetName}">
+                <button type="button" class="btn btn-sm btn-danger remove-target">Remove</button>
+            `;
+            container.appendChild(newItem);
+            setupRemoveTargets();
+        }
+    });
+
+    document.getElementById('add-negative-target').addEventListener('click', function(e) {
+        e.preventDefault(); // Prevent form submission
+        const select = document.getElementById('negative-target-select');
+        const targetName = select.value;
+        const container = document.getElementById('negative-targets');
+
+        const existingTargets = Array.from(container.querySelectorAll('input[name="negative_targets"]'))
+            .map(input => input.value);
+
+        if (!existingTargets.includes(targetName)) {
+            const newItem = document.createElement('div');
+            newItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+            newItem.innerHTML = `
+                ${targetName}
+                <input type="hidden" name="negative_targets" value="${targetName}">
+                <button type="button" class="btn btn-sm btn-danger remove-target">Remove</button>
+            `;
+            container.appendChild(newItem);
+            setupRemoveTargets();
+        }
+    });
+
+    // Create and add new positive target
+    document.getElementById('create-positive-target').addEventListener('click', function(e) {
+        e.preventDefault();
+        const input = document.getElementById('new-positive-target');
+        const targetName = input.value.trim();
+
+        if (!targetName) {
+            alert('Please enter a target name');
+            return;
+        }
+
+        // AJAX call to create new target
+        fetch('{% url "core:create_target" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({ name: targetName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Add to both select dropdowns
+                const option = document.createElement('option');
+                option.value = targetName;
+                option.textContent = targetName;
+
+                const positiveSelect = document.getElementById('positive-target-select');
+                const negativeSelect = document.getElementById('negative-target-select');
+
+                positiveSelect.appendChild(option.cloneNode(true));
+                negativeSelect.appendChild(option);
+
+                // Select the new option
+                positiveSelect.value = targetName;
+
+                // Add to positive targets list
+                const container = document.getElementById('positive-targets');
+                const newItem = document.createElement('div');
+                newItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                newItem.innerHTML = `
+                    ${targetName}
+                    <input type="hidden" name="positive_targets" value="${targetName}">
+                    <button type="button" class="btn btn-sm btn-danger remove-target">Remove</button>
+                `;
+                container.appendChild(newItem);
+                setupRemoveTargets();
+
+                // Clear input
+                input.value = '';
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to create target. Please try again.');
+        });
+    });
+
+    // Create and add new negative target
+    document.getElementById('create-negative-target').addEventListener('click', function(e) {
+        e.preventDefault();
+        const input = document.getElementById('new-negative-target');
+        const targetName = input.value.trim();
+
+        if (!targetName) {
+            alert('Please enter a target name');
+            return;
+        }
+
+        // AJAX call to create new target
+        fetch('{% url "core:create_target" %}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
+            body: JSON.stringify({ name: targetName })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                // Add to both select dropdowns
+                const option = document.createElement('option');
+                option.value = targetName;
+                option.textContent = targetName;
+
+                const positiveSelect = document.getElementById('positive-target-select');
+                const negativeSelect = document.getElementById('negative-target-select');
+
+                positiveSelect.appendChild(option.cloneNode(true));
+                negativeSelect.appendChild(option);
+
+                // Select the new option
+                negativeSelect.value = targetName;
+
+                // Add to negative targets list
+                const container = document.getElementById('negative-targets');
+                const newItem = document.createElement('div');
+                newItem.className = 'list-group-item list-group-item-action d-flex justify-content-between align-items-center';
+                newItem.innerHTML = `
+                    ${targetName}
+                    <input type="hidden" name="negative_targets" value="${targetName}">
+                    <button type="button" class="btn btn-sm btn-danger remove-target">Remove</button>
+                `;
+                container.appendChild(newItem);
+                setupRemoveTargets();
+
+                // Clear input
+                input.value = '';
+            } else {
+                alert('Error: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to create target. Please try again.');
+        });
+    });
+
+
+    // Form submission handling
+    document.querySelector('form').addEventListener('submit', function(e) {
+        const form = e.target;
+
+        const positiveTargets = Array.from(document.querySelectorAll('#positive-targets input[name="positive_targets"]'))
+            .map(input => input.value);
+        const negativeTargets = Array.from(document.querySelectorAll('#negative-targets input[name="negative_targets"]'))
+            .map(input => input.value);
+
+        form.querySelectorAll('input[name="positive_targets"], input[name="negative_targets"]').forEach(el => el.remove());
+
+        positiveTargets.forEach(target => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'positive_targets';
+            input.value = target;
+            form.appendChild(input);
+        });
+
+        negativeTargets.forEach(target => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'negative_targets';
+            input.value = target;
+            form.appendChild(input);
+        });
+
+        return true;
+    });
+
+    setupRemoveTargets();
+});
+</script>
+{% endblock %}

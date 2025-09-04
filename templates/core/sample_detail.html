@@ -1,0 +1,274 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Sample Details - {{ sample.mikrogen_internal_number }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center">
+                <h2>Sample: {{ sample.mikrogen_internal_number }}</h2>
+                <div>
+                    <a href="{% url 'core:edit_sample' sample.mikrogen_internal_number %}" class="btn btn-primary me-2">
+                        <i class="bi bi-pencil"></i> Edit
+                    </a>
+                    <button type="button" class="btn btn-danger" data-bs-toggle="modal" data-bs-target="#deleteModal">
+                        <i class="bi bi-trash"></i> Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-md-6">
+            <!-- General Information -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">General Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table">
+                        <tr>
+                            <th>Mikrogen Internal Number:</th>
+                            <td>{{ sample.mikrogen_internal_number }}</td>
+                        </tr>
+                        <tr>
+                            <th>Provider Number:</th>
+                            <td>{{ sample.provider_number|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Target:</th>
+                            <td>{{ sample.target.name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Storage Location:</th>
+                            <td>{{ storage_path }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Sample Information -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Sample Information</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table">
+                        <tr>
+                            <th>Sample Type:</th>
+                            <td>{{ sample.sample_type.name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Provider:</th>
+                            <td>{{ sample.provider.name }}</td>
+                        </tr>
+                        <tr>
+                            <th>Date of Draw:</th>
+                            <td>{{ sample.date_of_draw|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Age:</th>
+                            <td>{{ sample.age|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Gender:</th>
+                            <td>{{ sample.get_gender_display|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Country of Origin:</th>
+                            <td>{{ sample.country_of_origin|default:"-" }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <!-- Extraction Information -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Extraction</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table">
+                        <tr>
+                            <th>Extraction Date:</th>
+                            <td>{{ sample.extraction_date|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>Extractor:</th>
+                            <td>{{ sample.extractor.name|default:"-" }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- PCR Information -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">PCR</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table">
+                        <tr>
+                            <th>Cycler:</th>
+                            <td>{{ sample.cycler.name|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>PCR Kit (Mikrogen):</th>
+                            <td>{{ sample.mikrogen_pcr_kit.name|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>CT Value (Mikrogen):</th>
+                            <td>{{ sample.mikrogen_ct_value|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>PCR Kit (External):</th>
+                            <td>{{ sample.external_pcr_kit.name|default:"-" }}</td>
+                        </tr>
+                        <tr>
+                            <th>CT Value (External):</th>
+                            <td>{{ sample.external_ct_value|default:"-" }}</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Volume Information -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Volume</h5>
+                </div>
+                <div class="card-body">
+                    <table class="table">
+                        <tr>
+                            <th>Original Volume:</th>
+                            <td>{{ sample.sample_volume }} ml</td>
+                        </tr>
+                        <tr>
+                            <th>Remaining Volume:</th>
+                            <td>{{ sample.sample_volume_remaining }} ml</td>
+                        </tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Targets -->
+    <div class="card mb-4">
+        <div class="card-header bg-primary text-white">
+            <h5 class="card-title mb-0">Targets</h5>
+        </div>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <h6>Positive For</h6>
+                    {% if sample.positive_targets %}
+                        <ul>
+                        {% for target in sample.positive_targets %}
+                            <li>{{ target }}</li>
+                        {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p>No positive targets</p>
+                    {% endif %}
+                </div>
+                <div class="col-md-6">
+                    <h6>Negative For</h6>
+                    {% if sample.negative_targets %}
+                        <ul>
+                        {% for target in sample.negative_targets %}
+                            <li>{{ target }}</li>
+                        {% endfor %}
+                        </ul>
+                    {% else %}
+                        <p>No negative targets</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notes -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Notes</h5>
+                </div>
+                <div class="card-body">
+                    <p>{{ sample.notes|default:"No notes available"|linebreaks }}</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Usage History -->
+    <div class="row">
+        <div class="col-12">
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Usage History</h5>
+                </div>
+                <div class="card-body">
+                    {% if usage_logs %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Checkout Date</th>
+                                        <th>Return Date</th>
+                                        <th>Volume Used</th>
+                                        <th>Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for log in usage_logs %}
+                                        <tr>
+                                            <td>{{ log.user.username }}</td>
+                                            <td>{{ log.checkout_date }}</td>
+                                            <td>{{ log.return_date|default:"-" }}</td>
+                                            <td>{{ log.volume_used }} ml</td>
+                                            <td>{{ log.notes|default:"-" }}</td>
+                                        </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <p>No usage history available.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal -->
+    <div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Confirm Deletion</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>Are you sure you want to delete sample <strong>{{ sample.mikrogen_internal_number }}</strong>?</p>
+                    <p class="text-danger">This action cannot be undone.</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <form method="POST" action="{% url 'core:delete_sample' sample.mikrogen_internal_number %}">
+                        {% csrf_token %}
+                        <button type="submit" class="btn btn-danger">Delete</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

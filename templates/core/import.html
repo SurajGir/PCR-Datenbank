@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Import Samples{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="card-title mb-0">Import Samples from Excel</h5>
+                </div>
+                <div class="card-body">
+                    <div class="alert alert-info">
+                        <h5>Instructions</h5>
+                        <p>Upload an Excel file (.xlsx or .xls) with the following columns:</p>
+                        <ul>
+                            <li><strong>Required:</strong> Mikrogen Internal Number, Provider, Target, Sample Type, Sample Volume</li>
+                            <li><strong>Optional:</strong> Provider Number, PCR Kit (Mikrogen), PCR Kit (External), CT Value (Mikrogen), CT Value (External)</li>
+                        </ul>
+                        <p>If providers, targets, sample types, or PCR kits don't exist in the system, they will be created automatically.</p>
+                    </div>
+
+                    <form method="POST" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-3">
+                            <label for="excel_file" class="form-label">Excel File</label>
+                            <input type="file" class="form-control" id="excel_file" name="excel_file" accept=".xlsx, .xls" required>
+                        </div>
+                        <div class="mb-3">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="bi bi-upload"></i> Import Samples
+                            </button>
+                            <a href="{% url 'core:inventory' %}" class="btn btn-secondary">Cancel</a>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="card mt-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="card-title mb-0">Download Template</h5>
+                </div>
+                <div class="card-body">
+                    <p>Download a template Excel file with the correct column headers:</p>
+                    <a href="{% url 'core:download_template' %}" class="btn btn-success">
+                        <i class="bi bi-download"></i> Download Template
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

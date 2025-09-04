@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block title %}Confirm New Targets{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="card">
+        <div class="card-header bg-warning text-white">
+            <h5 class="card-title mb-0">New Targets Found</h5>
+        </div>
+        <div class="card-body">
+            <p>Your Excel file contains {{ new_targets|length }} new targets that don't exist in the database:</p>
+
+            <ul class="list-group mb-4">
+                {% for target in new_targets %}
+                    <li class="list-group-item">{{ target }}</li>
+                {% endfor %}
+            </ul>
+
+            <p>Do you want to add these targets to the database?</p>
+
+            <form method="POST" action="{% url 'core:import' %}">
+                {% csrf_token %}
+                <input type="hidden" name="temp_file_path" value="{{ temp_file_path }}">
+                <input type="hidden" name="confirm_targets" value="yes">
+                {% for target in new_targets %}
+                    <input type="hidden" name="new_targets" value="{{ target }}">
+                {% endfor %}
+                <button type="submit" class="btn btn-success">
+                    <i class="bi bi-check-circle me-1"></i>Yes, Add Targets & Continue Import
+                </button>
+            </form>
+
+            <form method="POST" action="{% url 'core:import' %}" class="mt-2">
+                {% csrf_token %}
+                <input type="hidden" name="confirm_targets" value="no">
+                <button type="submit" class="btn btn-danger">
+                    <i class="bi bi-x-circle me-1"></i>No, Cancel Import
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

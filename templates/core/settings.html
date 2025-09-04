@@ -1,0 +1,89 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Settings - PCR Datenbank{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+    <div class="row">
+        <div class="col-md-3 col-lg-2">
+            <!-- Left sidebar navigation -->
+            <div class="card shadow-sm">
+                <div class="card-header table-header">
+                    <h5 class="card-title mb-0"><i class="bi bi-gear me-2"></i>Drop-Down Settings</h5>
+                </div>
+                <div class="list-group list-group-flush">
+                    <a href="{% url 'core:settings' %}?section=targets" class="list-group-item list-group-item-action {% if section == 'targets' %}active{% endif %}">
+                        <i class="bi bi-bullseye me-2"></i>Targets
+                    </a>
+                    <a href="{% url 'core:settings' %}?section=sample_types" class="list-group-item list-group-item-action {% if section == 'sample_types' %}active{% endif %}">
+                        <i class="bi bi-collection me-2"></i>Sample Types
+                    </a>
+                    <a href="{% url 'core:settings' %}?section=providers" class="list-group-item list-group-item-action {% if section == 'providers' %}active{% endif %}">
+                        <i class="bi bi-building me-2"></i>Providers
+                    </a>
+                    <a href="{% url 'core:settings' %}?section=storage_places" class="list-group-item list-group-item-action {% if section == 'storage_places' %}active{% endif %}">
+                        <i class="bi bi-archive me-2"></i>Storage Places
+                    </a>
+                    <a href="{% url 'core:settings' %}?section=pcr_kits" class="list-group-item list-group-item-action {% if section == 'pcr_kits' %}active{% endif %}">
+                        <i class="bi bi-box me-2"></i>PCR Kits
+                    </a>
+                    <a href="{% url 'core:settings' %}?section=extractors" class="list-group-item list-group-item-action {% if section == 'extractors' %}active{% endif %}">
+                        <i class="bi bi-tools me-2"></i>Extractors
+                    </a>
+                    <a href="{% url 'core:settings' %}?section=cyclers" class="list-group-item list-group-item-action {% if section == 'cyclers' %}active{% endif %}">
+                        <i class="bi bi-thermometer me-2"></i>Cyclers
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-9 col-lg-10">
+            <!-- Right content area -->
+            <div class="card shadow-sm">
+                <div class="card-header table-header">
+                    {% if section == 'targets' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-bullseye me-2"></i>Targets</h5>
+                    {% elif section == 'sample_types' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-collection me-2"></i>Sample Types</h5>
+                    {% elif section == 'providers' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-building me-2"></i>Providers</h5>
+                    {% elif section == 'storage_places' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-archive me-2"></i>Storage Places</h5>
+                    {% elif section == 'pcr_kits' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-box me-2"></i>PCR Kits</h5>
+                    {% elif section == 'extractors' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-tools me-2"></i>Extractors</h5>
+                    {% elif section == 'cyclers' %}
+                        <h5 class="card-title mb-0"><i class="bi bi-thermometer me-2"></i>Cyclers</h5>
+                    {% else %}
+                        <h5 class="card-title mb-0"><i class="bi bi-gear me-2"></i>Settings</h5>
+                    {% endif %}
+                </div>
+                <div class="card-body">
+                    {% if section == 'targets' %}
+                        {% include 'core/settings/targets.html' %}
+                    {% elif section == 'sample_types' %}
+                        {% include 'core/settings/sample_types.html' %}
+                    {% elif section == 'providers' %}
+                        {% include 'core/settings/providers.html' %}
+                    {% elif section == 'storage_places' %}
+                        {% include 'core/settings/storage_places.html' %}
+                    {% elif section == 'pcr_kits' %}
+                        {% include 'core/settings/pcr_kits.html' %}
+                    {% elif section == 'extractors' %}
+                        {% include 'core/settings/extractors.html' %}
+                    {% elif section == 'cyclers' %}
+                        {% include 'core/settings/cyclers.html' %}
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="bi bi-gear fs-1 text-muted"></i>
+                            <p class="mt-3 text-muted">Select a settings category from the sidebar</p>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

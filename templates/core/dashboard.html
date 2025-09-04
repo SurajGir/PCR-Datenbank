@@ -1,0 +1,223 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Dashboard - PCR Datenbank{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row">
+    <div class="col-12 mb-4">
+      <h2 class="d-flex align-items-center">
+        <i class="bi bi-speedometer2 me-2"></i> Dashboard
+      </h2>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Count Cards -->
+    <div class="col-md-3 mb-4">
+      <div class="card text-white h-100">
+        <div class="card-body" style="background: linear-gradient(to right, #3498db, #2980b9);">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h6 class="card-title mb-0">Total Samples</h6>
+              <h2 class="mt-2 mb-0">{{ total_samples }}</h2>
+            </div>
+            <i class="bi bi-collection fs-1"></i>
+          </div>
+        </div>
+        <div class="card-footer bg-white">
+          <small class="text-muted">All samples in database</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3 mb-4">
+      <div class="card text-white h-100">
+        <div class="card-body" style="background: linear-gradient(to right, #f39c12, #d35400);">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h6 class="card-title mb-0">In Use</h6>
+              <h2 class="mt-2 mb-0">{{ in_use_count }}</h2>
+            </div>
+            <i class="bi bi-clipboard-check fs-1"></i>
+          </div>
+        </div>
+        <div class="card-footer bg-white">
+          <small class="text-muted">Samples currently in use</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3 mb-4">
+      <div class="card text-white h-100">
+        <div class="card-body" style="background: linear-gradient(to right, #2ecc71, #27ae60);">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h6 class="card-title mb-0">Available</h6>
+              <h2 class="mt-2 mb-0">{{ available_count }}</h2>
+            </div>
+            <i class="bi bi-check-circle fs-1"></i>
+          </div>
+        </div>
+        <div class="card-footer bg-white">
+          <small class="text-muted">Samples available for use</small>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-3 mb-4">
+      <div class="card text-white h-100">
+        <div class="card-body" style="background: linear-gradient(to right, #e74c3c, #c0392b);">
+          <div class="d-flex justify-content-between align-items-center">
+            <div>
+              <h6 class="card-title mb-0">Low Volume</h6>
+              <h2 class="mt-2 mb-0">{{ low_volume_count }}</h2>
+            </div>
+            <i class="bi bi-exclamation-triangle fs-1"></i>
+          </div>
+        </div>
+        <div class="card-footer bg-white">
+          <small class="text-muted">Samples with low volume (<25%)</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Charts -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header bg-primary text-white">
+          <h5 class="card-title mb-0">Samples by Type</h5>
+        </div>
+        <div class="card-body">
+          <canvas id="sampleTypeChart" height="250"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header bg-primary text-white">
+          <h5 class="card-title mb-0">Samples by Target</h5>
+        </div>
+        <div class="card-body">
+          <canvas id="targetChart" height="250"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- Recent Activity -->
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header bg-primary text-white">
+          <h5 class="card-title mb-0">Recent Activity</h5>
+        </div>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush">
+            {% for log in recent_logs %}
+            <div class="list-group-item">
+              <div class="d-flex w-100 justify-content-between">
+                <h6 class="mb-1">{{ log.user.username }} {{ log.action_type }}</h6>
+                <small>{{ log.timestamp|timesince }} ago</small>
+              </div>
+              <p class="mb-1">Sample: {{ log.sample.mikrogen_internal_number }}</p>
+              {% if log.volume_used %}
+              <small>Volume used: {{ log.volume_used }} ml</small>
+              {% endif %}
+            </div>
+            {% empty %}
+            <div class="list-group-item">No recent activity</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-md-6 mb-4">
+      <div class="card h-100">
+        <div class="card-header bg-primary text-white">
+          <h5 class="card-title mb-0">Top Users</h5>
+        </div>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush">
+            {% for user in top_users %}
+            <div class="list-group-item">
+              <div class="d-flex w-100 justify-content-between align-items-center">
+                <div>
+                  <h6 class="mb-0">{{ user.username }}</h6>
+                  <small>{{ user.email }}</small>
+                </div>
+                <span class="badge bg-primary rounded-pill">{{ user.usage_count }} samples</span>
+              </div>
+            </div>
+            {% empty %}
+            <div class="list-group-item">No user activity yet</div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    // Sample Type Chart
+    const sampleTypeCtx = document.getElementById('sampleTypeChart').getContext('2d');
+    const sampleTypeChart = new Chart(sampleTypeCtx, {
+      type: 'pie',
+      data: {
+        labels: {{ sample_type_labels|safe }},
+        datasets: [{
+          data: {{ sample_type_data }},
+          backgroundColor: [
+            '#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6',
+            '#1abc9c', '#d35400', '#34495e', '#16a085', '#2980b9'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'right',
+          }
+        }
+      }
+    });
+
+    // Target Chart
+    const targetCtx = document.getElementById('targetChart').getContext('2d');
+    const targetChart = new Chart(targetCtx, {
+      type: 'doughnut',
+      data: {
+        labels: {{ target_labels|safe }},
+        datasets: [{
+          data: {{ target_data }},
+          backgroundColor: [
+            '#2980b9', '#27ae60', '#c0392b', '#d35400', '#8e44ad',
+            '#16a085', '#e67e22', '#2c3e50', '#1abc9c', '#3498db'
+          ],
+          borderWidth: 1
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: {
+            position: 'right',
+          }
+        }
+      }
+    });
+  });
+</script>
+{% endblock %}
