@@ -1,155 +1,177 @@
 <!-- templates/core/settings/storage_places.html -->
-<div class="d-flex justify-content-between mb-3">
-    <h5>Manage Storage Places</h5>
-    <button type="button" class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#addStoragePlaceModal">
-        <i class="bi bi-plus-circle me-1"></i> Add Storage Place
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h5 class="mb-0">Manage Storage Places</h5>
+    <button type="button" class="btn btn-primary" id="add-room-btn" data-bs-toggle="modal" data-bs-target="#addStoragePlaceModal">
+        <i class="bi bi-plus-circle me-2"></i>Add Room
     </button>
 </div>
 
 <div class="storage-hierarchy mb-4">
     {% if storage_hierarchy %}
-        <div class="row">
-            {% for room in storage_hierarchy %}
-                <div class="col-md-4 mb-4">
-                    <div class="card h-100">
-                        <div class="card-header bg-light">
-                            <div class="d-flex justify-content-between align-items-center">
-                                <strong><i class="bi bi-building me-2"></i>{{ room.name }}</strong>
-                                <div>
+        {% for room in storage_hierarchy %}
+        <div class="card mb-3" style="border: 3px solid #343a40; border-radius: 8px;">
+            <!-- Room Header with buttons -->
+            <div class="card-header bg-light d-flex justify-content-between align-items-center" style="cursor: pointer;"
+                 data-bs-toggle="collapse" data-bs-target="#collapseRoom{{ room.id }}" aria-expanded="true">
+                <div class="d-flex align-items-center">
+                    <i class="bi bi-building me-2"></i>
+                    <span>{{ room.name }}</span>
+                    <span class="badge bg-secondary ms-2">{{ room.freezers|length }} freezer{{ room.freezers|length|pluralize }}</span>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="button" class="btn btn-sm btn-outline-primary add-child-btn"
+                            data-parent-id="{{ room.id }}" data-parent-name="{{ room.name }}" data-child-type="freezer"
+                            onclick="event.stopPropagation();">
+                        <i class="bi bi-plus"></i> Add Freezer
+                    </button>
+                    <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
+                            data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
+                            data-id="{{ room.id }}" data-name="{{ room.name }}"
+                            onclick="event.stopPropagation();">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                    <i class="bi bi-chevron-down"></i>
+                </div>
+            </div>
+
+            <!-- Room Content -->
+            <div class="collapse show" id="collapseRoom{{ room.id }}">
+                <div class="card-body">
+                    {% if room.freezers %}
+                        {% for freezer in room.freezers %}
+                        <div class="card mb-2 ms-3">
+                            <!-- Freezer Header with buttons -->
+                            <div class="card-header bg-white d-flex justify-content-between align-items-center" style="cursor: pointer;"
+                                 data-bs-toggle="collapse" data-bs-target="#collapseFreezer{{ freezer.id }}" aria-expanded="false">
+                                <div class="d-flex align-items-center">
+                                    <i class="bi bi-thermometer-snow me-2 text-info"></i>
+                                    <span>{{ freezer.name }}</span>
+                                    <span class="badge bg-light text-dark border ms-2">{{ freezer.drawers|length }} drawer{{ freezer.drawers|length|pluralize }}</span>
+                                </div>
+                                <div class="d-flex gap-2">
                                     <button type="button" class="btn btn-sm btn-outline-primary add-child-btn"
-                                            data-parent-id="{{ room.id }}" data-parent-name="{{ room.name }}"
-                                            data-child-type="freezer">
-                                        <i class="bi bi-plus"></i> Add Freezer
+                                            data-parent-id="{{ freezer.id }}" data-parent-name="{{ freezer.name }}" data-child-type="drawer"
+                                            onclick="event.stopPropagation();">
+                                        <i class="bi bi-plus"></i>
                                     </button>
                                     <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
                                             data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                                            data-id="{{ room.id }}" data-name="{{ room.name }}">
+                                            data-id="{{ freezer.id }}" data-name="{{ freezer.name }}"
+                                            onclick="event.stopPropagation();">
                                         <i class="bi bi-trash"></i>
                                     </button>
+                                    <i class="bi bi-chevron-down"></i>
                                 </div>
                             </div>
-                        </div>
-                        <div class="card-body p-0">
-                            <ul class="list-group list-group-flush">
-                                {% if room.freezers %}
-                                    {% for freezer in room.freezers %}
-                                        <li class="list-group-item">
-                                            <div class="d-flex justify-content-between align-items-center freezer-header">
-                                                <span class="text-primary"><i class="bi bi-thermometer-snow me-2"></i>{{ freezer.name }}</span>
-                                                <div class="btn-group">
-                                                    <button type="button" class="btn btn-sm btn-outline-secondary move-storage-btn"
-                                                            data-bs-toggle="modal" data-bs-target="#moveStoragePlaceModal"
-                                                            data-id="{{ freezer.id }}" data-name="{{ freezer.name }}" data-type="{{ freezer.type }}">
-                                                        <i class="bi bi-arrow-left-right"></i>
+
+                            <!-- Freezer Content -->
+                            <div class="collapse" id="collapseFreezer{{ freezer.id }}">
+                                <div class="card-body">
+                                    {% if freezer.drawers %}
+                                        {% for drawer in freezer.drawers %}
+                                        <div class="card mb-2 ms-3">
+                                            <!-- Drawer Header with buttons -->
+                                            <div class="card-header bg-light d-flex justify-content-between align-items-center" style="cursor: pointer;"
+                                                 data-bs-toggle="collapse" data-bs-target="#collapseDrawer{{ drawer.id }}" aria-expanded="false">
+                                                <div class="d-flex align-items-center">
+                                                    <i class="bi bi-inboxes me-2 text-secondary"></i>
+                                                    <span>{{ drawer.name }}</span>
+                                                    <span class="badge bg-light text-dark border ms-2">{{ drawer.boxes|length }} box{{ drawer.boxes|length|pluralize:"es" }}</span>
+                                                </div>
+                                                <div class="d-flex gap-2">
+                                                    <button type="button" class="btn btn-sm btn-outline-primary add-child-btn"
+                                                            data-parent-id="{{ drawer.id }}" data-parent-name="{{ drawer.name }}" data-child-type="box"
+                                                            onclick="event.stopPropagation();">
+                                                        <i class="bi bi-plus"></i>
                                                     </button>
                                                     <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
                                                             data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                                                            data-id="{{ freezer.id }}" data-name="{{ freezer.name }}">
+                                                            data-id="{{ drawer.id }}" data-name="{{ drawer.name }}"
+                                                            onclick="event.stopPropagation();">
                                                         <i class="bi bi-trash"></i>
                                                     </button>
+                                                    <i class="bi bi-chevron-down"></i>
                                                 </div>
                                             </div>
 
-                                            {% if freezer.drawers %}
-                                                <ul class="list-unstyled ms-3 mt-2 mb-0">
-                                                    {% for drawer in freezer.drawers %}
-                                                        <li class="mb-2">
-                                                            <div class="d-flex justify-content-between align-items-center drawer-header">
-                                                                <span class="text-secondary"><i class="bi bi-inboxes me-2"></i>{{ drawer.name }}</span>
-                                                                <div class="btn-group">
+                                            <!-- Drawer Content -->
+                                            <div class="collapse" id="collapseDrawer{{ drawer.id }}">
+                                                <div class="card-body">
+                                                    {% if drawer.boxes %}
+                                                    <div class="row row-cols-2 g-2">
+                                                        {% for box in drawer.boxes %}
+                                                        <div class="col">
+                                                            <div class="border rounded p-2 d-flex justify-content-between align-items-center">
+                                                                <div class="d-flex align-items-center">
+                                                                    <i class="bi bi-box me-2 text-warning"></i>
+                                                                    <span>{{ box.name }}</span>
+                                                                </div>
+                                                                <div class="d-flex gap-1">
                                                                     <button type="button" class="btn btn-sm btn-outline-secondary move-storage-btn"
                                                                             data-bs-toggle="modal" data-bs-target="#moveStoragePlaceModal"
-                                                                            data-id="{{ drawer.id }}" data-name="{{ drawer.name }}" data-type="{{ drawer.type }}">
+                                                                            data-id="{{ box.id }}" data-name="{{ box.name }}" data-type="box">
                                                                         <i class="bi bi-arrow-left-right"></i>
                                                                     </button>
                                                                     <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
                                                                             data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                                                                            data-id="{{ drawer.id }}" data-name="{{ drawer.name }}">
+                                                                            data-id="{{ box.id }}" data-name="{{ box.name }}">
                                                                         <i class="bi bi-trash"></i>
                                                                     </button>
                                                                 </div>
                                                             </div>
-
-                                                            {% if drawer.boxes %}
-                                                                <div class="ms-3 mt-2">
-                                                                    <div class="row row-cols-2 g-2">
-                                                                        {% for box in drawer.boxes %}
-                                                                            <div class="col">
-                                                                                <div class="border rounded p-2 d-flex justify-content-between align-items-center">
-                                                                                    <small><i class="bi bi-box me-1"></i>{{ box.name }}</small>
-                                                                                    <div class="btn-group">
-                                                                                        <button type="button" class="btn btn-sm btn-outline-secondary move-storage-btn"
-                                                                                                data-bs-toggle="modal" data-bs-target="#moveStoragePlaceModal"
-                                                                                                data-id="{{ box.id }}" data-name="{{ box.name }}" data-type="{{ box.type }}">
-                                                                                            <i class="bi bi-arrow-left-right"></i>
-                                                                                        </button>
-                                                                                        <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
-                                                                                                data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                                                                                                data-id="{{ box.id }}" data-name="{{ box.name }}">
-                                                                                            <i class="bi bi-trash"></i>
-                                                                                        </button>
-                                                                                    </div>
-                                                                                </div>
-                                                                            </div>
-                                                                        {% endfor %}
-                                                                    </div>
-                                                                </div>
-                                                            {% endif %}
-                                                        </li>
-                                                    {% endfor %}
-                                                </ul>
-                                            {% endif %}
-                                        </li>
-                                    {% endfor %}
-                                {% else %}
-                                    <li class="list-group-item text-muted small">No freezers in this room</li>
-                                {% endif %}
-                            </ul>
+                                                        </div>
+                                                        {% endfor %}
+                                                    </div>
+                                                    {% else %}
+                                                    <span class="text-muted small">No boxes in this drawer</span>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {% endfor %}
+                                    {% else %}
+                                    <span class="text-muted small">No drawers in this freezer</span>
+                                    {% endif %}
+                                </div>
+                            </div>
                         </div>
-                    </div>
+                        {% endfor %}
+                    {% else %}
+                    <span class="text-muted small">No freezers in this room</span>
+                    {% endif %}
                 </div>
-            {% endfor %}
+            </div>
         </div>
+        {% endfor %}
     {% else %}
-        <div class="alert alert-info">
-            <i class="bi bi-info-circle me-2"></i> No storage places defined yet.
-        </div>
+    <div class="alert alert-info">
+        <i class="bi bi-info-circle me-2"></i> No storage places defined yet.
+    </div>
     {% endif %}
 </div>
 
-<!-- Keep the same modals from your existing template -->
 <!-- Add Storage Place Modal -->
 <div class="modal fade" id="addStoragePlaceModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Add Storage Place</h5>
+                <h5 class="modal-title">Add Room</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST">
                 {% csrf_token %}
                 <input type="hidden" name="action" value="add">
                 <input type="hidden" name="option_type" value="storage_place">
+                <input type="hidden" name="type" id="storage-type" value="room">
+                <input type="hidden" name="parent_id" id="parent-id" value="">
                 <div class="modal-body">
+                    <div class="mb-3" id="parent-name-container" style="display:none;">
+                        <label class="form-label">Parent Location</label>
+                        <div class="form-control-plaintext"><span id="storage-parent-name"></span></div>
+                    </div>
                     <div class="mb-3">
                         <label for="storage-name" class="form-label">Name</label>
                         <input type="text" class="form-control" id="storage-name" name="name" required>
-                    </div>
-                    <div class="mb-3">
-                        <label for="storage-type" class="form-label">Type</label>
-                        <select class="form-select" id="storage-type" name="type" required>
-                            <option value="" selected disabled>Select a type</option>
-                            {% for value, label in storage_types %}
-                                <option value="{{ value }}">{{ label }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="mb-3" id="parent-container" style="display: none;">
-                        <label for="parent-id" class="form-label">Parent Location</label>
-                        <select class="form-select" id="parent-id" name="parent_id">
-                            <option value="" selected disabled>Select parent location</option>
-                            <!-- Dynamic content based on type selection -->
-                        </select>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -207,98 +229,77 @@
                 <input type="hidden" name="item_id" id="delete-storage-id">
                 <div class="modal-body">
                     <p>Are you sure you want to delete "<span id="delete-storage-name"></span>"?</p>
-                    <p class="text-danger">This action cannot be undone and may fail if this location contains samples or other storage places.</p>
+                    <div id="delete-warning-content" style="display: none;">
+                        <p class="text-info">This will also delete:</p>
+                        <ul id="delete-children-list" class="text-info">
+                            <!-- Populated by JavaScript -->
+                        </ul>
+                    </div>
+                    <p class="text-danger">This action cannot be undone and will fail if any location contains samples.</p>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                    <button type="submit" class="btn btn-danger">Delete</button>
+                    <button type="submit" class="btn btn-danger">Delete All</button>
                 </div>
             </form>
         </div>
     </div>
 </div>
 
+<style>
+.card-header:hover {
+    background-color: #e7f3ff !important;
+}
+
+.chevron-rotate {
+    transform: rotate(180deg);
+    transition: transform 0.2s ease;
+}
+</style>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
-    // Storage type selection logic
-    const storageTypeSelect = document.getElementById('storage-type');
-    const parentContainer = document.getElementById('parent-container');
-    const parentSelect = document.getElementById('parent-id');
+    // Add Room button logic
+    document.getElementById('add-room-btn').addEventListener('click', function() {
+        document.getElementById('storage-type').value = 'room';
+        document.getElementById('parent-id').value = '';
+        document.getElementById('storage-name').value = '';
+        document.getElementById('addStoragePlaceModal').querySelector('.modal-title').textContent = 'Add Room';
+        document.getElementById('parent-name-container').style.display = 'none';
+    });
 
-    if (storageTypeSelect) {
-        storageTypeSelect.addEventListener('change', function() {
-            const selectedType = this.value;
-            parentContainer.style.display = 'none';
-            parentSelect.innerHTML = '<option value="" selected disabled>Select parent location</option>';
-
-            if (selectedType === 'room') {
-                // Rooms don't need parents
-                parentContainer.style.display = 'none';
-            } else {
-                // Other types need appropriate parents
-                let parentType;
-                if (selectedType === 'freezer') {
-                    parentType = 'room';
-                } else if (selectedType === 'drawer') {
-                    parentType = 'freezer';
-                } else if (selectedType === 'box') {
-                    parentType = 'drawer';
-                }
-
-                // Fetch appropriate parent options
-                fetch(`/api/storage-places/?type=${parentType}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.length > 0) {
-                            data.forEach(place => {
-                                const option = document.createElement('option');
-                                option.value = place.id;
-                                option.textContent = place.name;
-                                parentSelect.appendChild(option);
-                            });
-                            parentContainer.style.display = 'block';
-                        } else {
-                            alert(`No ${parentType}s available to place this ${selectedType} in.`);
-                            storageTypeSelect.value = '';
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching parent options:', error);
-                    });
-            }
+    // Add child item (freezer, drawer, box) buttons
+    document.querySelectorAll('.add-child-btn').forEach(button => {
+        button.addEventListener('click', function() {
+            const childType = this.getAttribute('data-child-type');
+            const parentId = this.getAttribute('data-parent-id');
+            const parentName = this.getAttribute('data-parent-name');
+            document.getElementById('storage-type').value = childType;
+            document.getElementById('parent-id').value = parentId;
+            document.getElementById('storage-name').value = '';
+            document.getElementById('addStoragePlaceModal').querySelector('.modal-title').textContent = 'Add ' + childType.charAt(0).toUpperCase() + childType.slice(1);
+            document.getElementById('parent-name-container').style.display = 'block';
+            document.getElementById('storage-parent-name').textContent = parentName;
         });
-    }
+    });
 
-    // Move and Delete buttons - keep the same event handlers
-    const moveButtons = document.querySelectorAll('.move-storage-btn');
-    const moveStorageId = document.getElementById('move-storage-id');
-    const moveStorageName = document.getElementById('move-storage-name');
-    const newParentSelect = document.getElementById('new-parent-id');
-
-    moveButtons.forEach(button => {
+    // Move buttons
+    document.querySelectorAll('.move-storage-btn').forEach(button => {
         button.addEventListener('click', function() {
             const id = this.getAttribute('data-id');
             const name = this.getAttribute('data-name');
             const type = this.getAttribute('data-type');
 
-            moveStorageId.value = id;
-            moveStorageName.textContent = name;
+            document.getElementById('move-storage-id').value = id;
+            document.getElementById('move-storage-name').textContent = name;
 
-            // Determine appropriate parent type
-            let parentType;
-            if (type === 'freezer') {
-                parentType = 'room';
-            } else if (type === 'drawer') {
-                parentType = 'freezer';
-            } else if (type === 'box') {
-                parentType = 'drawer';
-            }
-
-            // Clear previous options
+            // Clear and populate parent options
+            const newParentSelect = document.getElementById('new-parent-id');
             newParentSelect.innerHTML = '<option value="" selected disabled>Select new parent location</option>';
 
-            // Fetch appropriate parent options
-            fetch(`/api/storage-places/?type=${parentType}`)
+            let parentType = 'drawer'; // Only boxes can be moved, and they go in drawers
+
+            fetch(`/storage-places/?type=${parentType}`)
                 .then(response => response.json())
                 .then(data => {
                     if (data.length > 0) {
@@ -318,35 +319,94 @@ document.addEventListener('DOMContentLoaded', function() {
         });
     });
 
-    // Delete storage place logic
-    const deleteButtons = document.querySelectorAll('.delete-storage-btn');
-
-    deleteButtons.forEach(button => {
+    // Delete buttons with proper warning logic
+    document.querySelectorAll('.delete-storage-btn').forEach(button => {
         button.addEventListener('click', function() {
             const id = this.getAttribute('data-id');
             const name = this.getAttribute('data-name');
 
-            document.getElementById('delete-storage-id').value = id;
-            document.getElementById('delete-storage-name').textContent = name;
+            if (id && name) {
+                document.getElementById('delete-storage-id').value = id;
+                document.getElementById('delete-storage-name').textContent = name;
+
+                const warningContent = document.getElementById('delete-warning-content');
+                const childrenList = document.getElementById('delete-children-list');
+
+                // Determine what type of storage this is by looking at the icon
+                const parentElement = this.closest('.card, .border');
+                let showWarning = false;
+
+                if (parentElement) {
+                    // Check for room (has building icon)
+                    if (parentElement.querySelector('.bi-building')) {
+                        showWarning = true;
+                        childrenList.innerHTML = '<li>All freezers, drawers, and boxes inside this room</li>';
+                    }
+                    // Check for freezer (has thermometer icon)
+                    else if (parentElement.querySelector('.bi-thermometer-snow')) {
+                        showWarning = true;
+                        childrenList.innerHTML = '<li>All drawers and boxes inside this freezer</li>';
+                    }
+                    // Check for drawer (has inboxes icon)
+                    else if (parentElement.querySelector('.bi-inboxes')) {
+                        showWarning = true;
+                        childrenList.innerHTML = '<li>All boxes inside this drawer</li>';
+                    }
+                    // Box (has box icon) - no children, no warning
+                    else if (parentElement.querySelector('.bi-box')) {
+                        showWarning = false;
+                    }
+                }
+
+                if (showWarning) {
+                    warningContent.style.display = 'block';
+                } else {
+                    warningContent.style.display = 'none';
+                }
+            }
         });
     });
-});
 
-    // Add child item (freezer, drawer, box) buttons
-document.querySelectorAll('.add-child-btn').forEach(button => {
-    button.addEventListener('click', function() {
-        const parentId = this.getAttribute('data-parent-id');
-        const parentName = this.getAttribute('data-parent-name');
-        const childType = this.getAttribute('data-child-type');
+    // Storage type selection logic for add modal
+    const storageTypeSelect = document.getElementById('storage-type');
+    if (storageTypeSelect) {
+        storageTypeSelect.addEventListener('change', function() {
+            const selectedType = this.value;
+            const parentContainer = document.getElementById('parent-container');
+            const parentSelect = document.getElementById('parent-id');
 
-        // Set up Add modal for this specific child type
-        const addModal = new bootstrap.Modal(document.getElementById('addStoragePlaceModal'));
-        document.getElementById('storage-type').value = childType;
-        document.getElementById('parent-id').value = parentId;
-        document.getElementById('storage-parent-name').textContent = parentName;
+            if (selectedType === 'room') {
+                if (parentContainer) parentContainer.style.display = 'none';
+            } else {
+                let parentType;
+                if (selectedType === 'freezer') {
+                    parentType = 'room';
+                } else if (selectedType === 'drawer') {
+                    parentType = 'freezer';
+                } else if (selectedType === 'box') {
+                    parentType = 'drawer';
+                }
 
-        // Show the modal
-        addModal.show();
-    });
+                fetch(`/storage-places/?type=${parentType}`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.length > 0) {
+                            data.forEach(place => {
+                                const option = document.createElement('option');
+                                option.value = place.id;
+                                option.textContent = place.name;
+                                parentSelect.appendChild(option);
+                            });
+                            if (parentContainer) parentContainer.style.display = 'block';
+                        } else {
+                            alert(`No ${parentType}s available to place this ${selectedType} in.`);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching parent options:', error);
+                    });
+            }
+        });
+    }
 });
 </script>

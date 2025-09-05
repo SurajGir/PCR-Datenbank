@@ -702,6 +702,19 @@ def settings(request):
                     kit_type = request.POST.get('kit_type', 'mikrogen')
                     PCRKit.objects.create(name=name, type=kit_type)
                     messages.success(request, f"PCR Kit '{name}' added successfully.")
+                elif option_type == 'storage_place':
+                    storage_type = request.POST.get('type')
+                    parent_id = request.POST.get('parent_id')
+
+                    parent = None
+                    if parent_id:
+                        try:
+                            parent = StoragePlace.objects.get(id=parent_id)
+                        except StoragePlace.DoesNotExist:
+                            parent = None
+
+                    StoragePlace.objects.create(name=name, type=storage_type, parent=parent)
+                    messages.success(request, f"{storage_type.capitalize()} '{name}' added successfully.")
 
         elif action == 'edit':
             option_id = request.POST.get('option_id')
@@ -744,8 +757,50 @@ def settings(request):
                     kit.save()
                     messages.success(request, f"PCR Kit updated successfully.")
 
+        elif action == 'move':
+            item_id = request.POST.get('item_id')
+            new_parent_id = request.POST.get('new_parent_id')
+
+            item = get_object_or_404(StoragePlace, id=item_id)
+
+            # Prevent circular references
+            if new_parent_id:
+                new_parent = get_object_or_404(StoragePlace, id=new_parent_id)
+
+                # Check if new_parent is a descendant of item
+                current = new_parent
+                while current:
+                    if current.id == item.id:
+                        messages.error(request, "Cannot move a storage location into its own descendant.")
+                        return redirect(f'/settings/?section={section}')
+                    current = current.parent
+
+                # Check if the new parent is of the correct type
+                if item.type == 'freezer' and new_parent.type != 'room':
+                    messages.error(request, "Freezers can only be placed in rooms.")
+                elif item.type == 'drawer' and new_parent.type != 'freezer':
+                    messages.error(request, "Drawers can only be placed in freezers.")
+                elif item.type == 'box' and new_parent.type != 'drawer':
+                    messages.error(request, "Boxes can only be placed in drawers.")
+                else:
+                    item.parent = new_parent
+                    item.save()
+                    messages.success(request, f"{item.name} moved successfully.")
+            else:
+                # Moving to top level (only rooms should be at top level)
+                if item.type != 'room':
+                    messages.error(request, "Only rooms can be at the top level.")
+                else:
+                    item.parent = None
+                    item.save()
+                    messages.success(request, f"{item.name} moved to top level.")
+
         elif action == 'delete':
-            option_id = request.POST.get('option_id')
+            item_id = request.POST.get('item_id')
+
+            if not item_id:  # Add this check
+                messages.error(request, "No item ID provided for deletion.")
+                return redirect(f'/settings/?section={section}')
 
             try:
                 if option_type == 'target':
@@ -778,6 +833,28 @@ def settings(request):
                     name = kit.name
                     kit.delete()
                     messages.success(request, f"PCR Kit '{name}' deleted successfully.")
+                elif option_type == 'storage_place':
+                    storage_place = get_object_or_404(StoragePlace, id=item_id)
+
+                    # Check if the storage place contains samples
+                    if hasattr(storage_place, 'pcrsample_set') and storage_place.pcrsample_set.exists():
+                        messages.error(request, f"Cannot delete {storage_place.name} because it contains samples.")
+                    else:
+                        # Count child storage places for the message
+                        child_count = StoragePlace.objects.filter(parent=storage_place).count()
+
+                        # Get the type name for better messaging
+                        type_name = storage_place.get_type_display()
+                        name = storage_place.name
+
+                        # Delete the storage place and all its children (CASCADE will handle this)
+                        storage_place.delete()
+
+                        if child_count > 0:
+                            messages.success(request,
+                                             f"{type_name} '{name}' and its {child_count} child storage location(s) deleted successfully.")
+                        else:
+                            messages.success(request, f"{type_name} '{name}' deleted successfully.")
             except Exception as e:
                 messages.error(request,
                                f"Cannot delete this {option_type} because it is being used by samples: {str(e)}")

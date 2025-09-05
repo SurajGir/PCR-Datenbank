@@ -285,3 +285,16 @@ footer {
     max-height: 600px;
     overflow-y: auto;
 }
+
+/* Compact message styling */
+.container .alert {
+    padding: 0.375rem 0.75rem !important;
+    font-size: 0.875rem !important;
+    margin-bottom: 0.25rem !important;
+    border-radius: 6px !important;
+}
+
+.container .alert .btn-close {
+    padding: 0.25rem 0.25rem !important;
+    font-size: 0.75rem !important;
+}
