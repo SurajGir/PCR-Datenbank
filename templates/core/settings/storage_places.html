@@ -20,16 +20,13 @@
                 </div>
                 <div class="d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-primary add-child-btn"
-                            data-parent-id="{{ room.id }}" data-parent-name="{{ room.name }}" data-child-type="freezer"
-                            onclick="event.stopPropagation();">
-                        <i class="bi bi-plus"></i> Add Freezer
-                    </button>
-                    <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
-                            data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                            data-id="{{ room.id }}" data-name="{{ room.name }}"
-                            onclick="event.stopPropagation();">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                        data-parent-id="{{ room.id }}" data-parent-name="{{ room.name }}" data-child-type="freezer">
+                    <i class="bi bi-plus"></i> Add Freezer
+                </button>
+                <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
+                        data-id="{{ room.id }}" data-name="{{ room.name }}">
+                    <i class="bi bi-trash"></i>
+                </button>
                     <i class="bi bi-chevron-down"></i>
                 </div>
             </div>
@@ -50,14 +47,11 @@
                                 </div>
                                 <div class="d-flex gap-2">
                                     <button type="button" class="btn btn-sm btn-outline-primary add-child-btn"
-                                            data-parent-id="{{ freezer.id }}" data-parent-name="{{ freezer.name }}" data-child-type="drawer"
-                                            onclick="event.stopPropagation();">
+                                            data-parent-id="{{ freezer.id }}" data-parent-name="{{ freezer.name }}" data-child-type="drawer">
                                         <i class="bi bi-plus"></i>
                                     </button>
                                     <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
-                                            data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                                            data-id="{{ freezer.id }}" data-name="{{ freezer.name }}"
-                                            onclick="event.stopPropagation();">
+                                            data-id="{{ freezer.id }}" data-name="{{ freezer.name }}">
                                         <i class="bi bi-trash"></i>
                                     </button>
                                     <i class="bi bi-chevron-down"></i>
@@ -80,16 +74,13 @@
                                                 </div>
                                                 <div class="d-flex gap-2">
                                                     <button type="button" class="btn btn-sm btn-outline-primary add-child-btn"
-                                                            data-parent-id="{{ drawer.id }}" data-parent-name="{{ drawer.name }}" data-child-type="box"
-                                                            onclick="event.stopPropagation();">
-                                                        <i class="bi bi-plus"></i>
-                                                    </button>
-                                                    <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
-                                                            data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
-                                                            data-id="{{ drawer.id }}" data-name="{{ drawer.name }}"
-                                                            onclick="event.stopPropagation();">
-                                                        <i class="bi bi-trash"></i>
-                                                    </button>
+                                                        data-parent-id="{{ drawer.id }}" data-parent-name="{{ drawer.name }}" data-child-type="box">
+                                                    <i class="bi bi-plus"></i>
+                                                </button>
+                                                <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
+                                                        data-id="{{ drawer.id }}" data-name="{{ drawer.name }}">
+                                                    <i class="bi bi-trash"></i>
+                                                </button>
                                                     <i class="bi bi-chevron-down"></i>
                                                 </div>
                                             </div>
@@ -108,12 +99,10 @@
                                                                 </div>
                                                                 <div class="d-flex gap-1">
                                                                     <button type="button" class="btn btn-sm btn-outline-secondary move-storage-btn"
-                                                                            data-bs-toggle="modal" data-bs-target="#moveStoragePlaceModal"
                                                                             data-id="{{ box.id }}" data-name="{{ box.name }}" data-type="box">
                                                                         <i class="bi bi-arrow-left-right"></i>
                                                                     </button>
                                                                     <button type="button" class="btn btn-sm btn-outline-danger delete-storage-btn"
-                                                                            data-bs-toggle="modal" data-bs-target="#deleteStoragePlaceModal"
                                                                             data-id="{{ box.id }}" data-name="{{ box.name }}">
                                                                         <i class="bi bi-trash"></i>
                                                                     </button>
@@ -257,8 +246,54 @@
 }
 </style>
 
+<style>
+.card-header:hover {
+    background-color: #e7f3ff !important;
+}
+
+.chevron-rotate {
+    transform: rotate(180deg);
+    transition: transform 0.2s ease;
+}
+
+/* Prevent accordion toggle when clicking buttons */
+.card-header .btn {
+    pointer-events: auto;
+    z-index: 10;
+    position: relative;
+}
+
+.card-header {
+    pointer-events: auto;
+}
+
+.card-header .btn:hover {
+    z-index: 11;
+}
+</style>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Disable accordion toggle on button areas by removing the data attributes temporarily
+    function disableAccordionOnButtons() {
+        document.querySelectorAll('.card-header[data-bs-toggle="collapse"]').forEach(header => {
+            const buttons = header.querySelectorAll('.btn');
+            buttons.forEach(button => {
+                button.addEventListener('mouseenter', function() {
+                    header.removeAttribute('data-bs-toggle');
+                    header.style.cursor = 'default';
+                });
+                button.addEventListener('mouseleave', function() {
+                    header.setAttribute('data-bs-toggle', 'collapse');
+                    header.style.cursor = 'pointer';
+                });
+            });
+        });
+    }
+
+    // Call the function to set up button behavior
+    disableAccordionOnButtons();
+
     // Add Room button logic
     document.getElementById('add-room-btn').addEventListener('click', function() {
         document.getElementById('storage-type').value = 'room';
@@ -268,145 +303,102 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('parent-name-container').style.display = 'none';
     });
 
-    // Add child item (freezer, drawer, box) buttons
-    document.querySelectorAll('.add-child-btn').forEach(button => {
-        button.addEventListener('click', function() {
-            const childType = this.getAttribute('data-child-type');
-            const parentId = this.getAttribute('data-parent-id');
-            const parentName = this.getAttribute('data-parent-name');
+    // Add child buttons - simple approach
+    document.addEventListener('click', function(event) {
+        if (event.target.closest('.add-child-btn')) {
+            const button = event.target.closest('.add-child-btn');
+            const childType = button.getAttribute('data-child-type');
+            const parentId = button.getAttribute('data-parent-id');
+            const parentName = button.getAttribute('data-parent-name');
+
             document.getElementById('storage-type').value = childType;
             document.getElementById('parent-id').value = parentId;
             document.getElementById('storage-name').value = '';
-            document.getElementById('addStoragePlaceModal').querySelector('.modal-title').textContent = 'Add ' + childType.charAt(0).toUpperCase() + childType.slice(1);
+
+            const modalTitle = document.getElementById('addStoragePlaceModal').querySelector('.modal-title');
+            modalTitle.textContent = 'Add ' + childType.charAt(0).toUpperCase() + childType.slice(1);
+
             document.getElementById('parent-name-container').style.display = 'block';
             document.getElementById('storage-parent-name').textContent = parentName;
-        });
-    });
 
-    // Move buttons
-    document.querySelectorAll('.move-storage-btn').forEach(button => {
-        button.addEventListener('click', function() {
-            const id = this.getAttribute('data-id');
-            const name = this.getAttribute('data-name');
-            const type = this.getAttribute('data-type');
+            const modal = new bootstrap.Modal(document.getElementById('addStoragePlaceModal'));
+            modal.show();
+        }
+
+        // Delete buttons
+        if (event.target.closest('.delete-storage-btn')) {
+            const button = event.target.closest('.delete-storage-btn');
+            const id = button.getAttribute('data-id');
+            const name = button.getAttribute('data-name');
+
+            document.getElementById('delete-storage-id').value = id;
+            document.getElementById('delete-storage-name').textContent = name;
+
+            // Warning logic
+            const parentElement = button.closest('.card, .border');
+            const warningContent = document.getElementById('delete-warning-content');
+            const childrenList = document.getElementById('delete-children-list');
+            let showWarning = false;
+
+            if (parentElement) {
+                if (parentElement.querySelector('.bi-building')) {
+                    showWarning = true;
+                    childrenList.innerHTML = '<li>All freezers, drawers, and boxes inside this room</li>';
+                } else if (parentElement.querySelector('.bi-thermometer-snow')) {
+                    showWarning = true;
+                    childrenList.innerHTML = '<li>All drawers and boxes inside this freezer</li>';
+                } else if (parentElement.querySelector('.bi-inboxes')) {
+                    showWarning = true;
+                    childrenList.innerHTML = '<li>All boxes inside this drawer</li>';
+                }
+            }
+
+            warningContent.style.display = showWarning ? 'block' : 'none';
+
+            const modal = new bootstrap.Modal(document.getElementById('deleteStoragePlaceModal'));
+            modal.show();
+        }
+
+        // Move buttons
+        if (event.target.closest('.move-storage-btn')) {
+            const button = event.target.closest('.move-storage-btn');
+            const id = button.getAttribute('data-id');
+            const name = button.getAttribute('data-name');
 
             document.getElementById('move-storage-id').value = id;
             document.getElementById('move-storage-name').textContent = name;
 
-            // Clear and populate parent options
             const newParentSelect = document.getElementById('new-parent-id');
             newParentSelect.innerHTML = '<option value="" selected disabled>Select new parent location</option>';
 
-            let parentType = 'drawer'; // Only boxes can be moved, and they go in drawers
-
-            fetch(`/storage-places/?type=${parentType}`)
+            fetch('/storage-places/?type=drawer')
                 .then(response => response.json())
                 .then(data => {
-                    if (data.length > 0) {
-                        data.forEach(place => {
-                            const option = document.createElement('option');
-                            option.value = place.id;
-                            option.textContent = place.name;
-                            newParentSelect.appendChild(option);
-                        });
-                    } else {
-                        alert(`No ${parentType}s available to move this ${type} to.`);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error fetching parent options:', error);
-                });
-        });
-    });
-
-    // Delete buttons with proper warning logic
-    document.querySelectorAll('.delete-storage-btn').forEach(button => {
-        button.addEventListener('click', function() {
-            const id = this.getAttribute('data-id');
-            const name = this.getAttribute('data-name');
-
-            if (id && name) {
-                document.getElementById('delete-storage-id').value = id;
-                document.getElementById('delete-storage-name').textContent = name;
-
-                const warningContent = document.getElementById('delete-warning-content');
-                const childrenList = document.getElementById('delete-children-list');
-
-                // Determine what type of storage this is by looking at the icon
-                const parentElement = this.closest('.card, .border');
-                let showWarning = false;
-
-                if (parentElement) {
-                    // Check for room (has building icon)
-                    if (parentElement.querySelector('.bi-building')) {
-                        showWarning = true;
-                        childrenList.innerHTML = '<li>All freezers, drawers, and boxes inside this room</li>';
-                    }
-                    // Check for freezer (has thermometer icon)
-                    else if (parentElement.querySelector('.bi-thermometer-snow')) {
-                        showWarning = true;
-                        childrenList.innerHTML = '<li>All drawers and boxes inside this freezer</li>';
-                    }
-                    // Check for drawer (has inboxes icon)
-                    else if (parentElement.querySelector('.bi-inboxes')) {
-                        showWarning = true;
-                        childrenList.innerHTML = '<li>All boxes inside this drawer</li>';
-                    }
-                    // Box (has box icon) - no children, no warning
-                    else if (parentElement.querySelector('.bi-box')) {
-                        showWarning = false;
-                    }
-                }
-
-                if (showWarning) {
-                    warningContent.style.display = 'block';
-                } else {
-                    warningContent.style.display = 'none';
-                }
-            }
-        });
-    });
-
-    // Storage type selection logic for add modal
-    const storageTypeSelect = document.getElementById('storage-type');
-    if (storageTypeSelect) {
-        storageTypeSelect.addEventListener('change', function() {
-            const selectedType = this.value;
-            const parentContainer = document.getElementById('parent-container');
-            const parentSelect = document.getElementById('parent-id');
-
-            if (selectedType === 'room') {
-                if (parentContainer) parentContainer.style.display = 'none';
-            } else {
-                let parentType;
-                if (selectedType === 'freezer') {
-                    parentType = 'room';
-                } else if (selectedType === 'drawer') {
-                    parentType = 'freezer';
-                } else if (selectedType === 'box') {
-                    parentType = 'drawer';
-                }
-
-                fetch(`/storage-places/?type=${parentType}`)
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.length > 0) {
-                            data.forEach(place => {
-                                const option = document.createElement('option');
-                                option.value = place.id;
-                                option.textContent = place.name;
-                                parentSelect.appendChild(option);
-                            });
-                            if (parentContainer) parentContainer.style.display = 'block';
-                        } else {
-                            alert(`No ${parentType}s available to place this ${selectedType} in.`);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error fetching parent options:', error);
+                    data.forEach(place => {
+                        const option = document.createElement('option');
+                        option.value = place.id;
+                        option.textContent = place.name;
+                        newParentSelect.appendChild(option);
                     });
-            }
+                });
+
+            const modal = new bootstrap.Modal(document.getElementById('moveStoragePlaceModal'));
+            modal.show();
+        }
+    });
+
+    // Fix modal backdrop issues
+    document.querySelectorAll('.modal').forEach(modal => {
+        modal.addEventListener('hidden.bs.modal', function() {
+            setTimeout(() => {
+                if (document.querySelectorAll('.modal.show').length === 0) {
+                    document.body.classList.remove('modal-open');
+                    document.body.style.overflow = '';
+                    document.body.style.paddingRight = '';
+                    document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.remove());
+                }
+            }, 100);
         });
-    }
+    });
 });
 </script>

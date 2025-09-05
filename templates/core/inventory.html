@@ -377,7 +377,7 @@
     </div>
 </div>
 
-    <!--Modal for export confirmation -->
+<!-- Modal for export confirmation -->
 <div class="modal fade" id="exportConfirmModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog">
         <div class="modal-content">
@@ -386,11 +386,8 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="alert alert-info">
-                    <i class="bi bi-info-circle me-2"></i>
-                    You're about to export <span id="export-count" class="fw-bold">0</span> samples.
-                </div>
-                <p>This will mark them as "Reserved".</p>
+                <p id="export-message">You're about to export <span id="export-count" class="fw-bold">0</span> samples.</p>
+                <p>This will mark them as "Reserved" and download them as an Excel file.</p>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -402,6 +399,11 @@
 {% endblock %}
 
 {% block extra_js %}
+
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+<link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
+
 <script>
     document.addEventListener('DOMContentLoaded', function() {
         const selectAllCheckbox = document.getElementById('select-all');
@@ -444,9 +446,6 @@
                 sessionStorage.removeItem('advancedFiltersOpen');
             });
         });
-
-        // Call this immediately to set initial state
-        updateButtonState();
 
         // Select all functionality
         if (selectAllCheckbox) {
@@ -535,48 +534,104 @@
             exportSelectedBtn.addEventListener('click', function(e) {
                 e.preventDefault();
 
-                // Check if any selected samples are marked as "not found"
-                const notFoundSelected = Array.from(document.querySelectorAll('.sample-checkbox:checked')).some(checkbox => {
+                // Analyze selected samples
+                const selectedCheckboxes = document.querySelectorAll('.sample-checkbox:checked');
+                let availableCount = 0;
+                let reservedByMeCount = 0;
+                let notFoundCount = 0;
+
+                selectedCheckboxes.forEach(checkbox => {
                     const row = checkbox.closest('tr');
-                    return row.querySelector('td:last-child span').textContent.trim().includes('Not Found');
+                    if (row.querySelector('td:last-child span').textContent.trim().includes('Not Found')) {
+                        notFoundCount++;
+                    } else if (row.classList.contains('reserved-by-me')) {
+                        reservedByMeCount++;
+                    } else {
+                        availableCount++;
+                    }
                 });
 
-                if (notFoundSelected) {
-                    // Show warning modal if not found samples are selected
+                // Block if any "not found" samples
+                if (notFoundCount > 0) {
                     const notFoundWarningModal = new bootstrap.Modal(document.getElementById('notFoundWarningModal'));
                     notFoundWarningModal.show();
                     return;
                 }
 
-                // Continue with normal export flow
-                const checkedCount = document.querySelectorAll('.sample-checkbox:checked').length;
-                document.getElementById('export-count').textContent = checkedCount;
-                const exportModal = new bootstrap.Modal(document.getElementById('exportConfirmModal'));
+                // Update export message based on selection mix
+                const totalCount = selectedCheckboxes.length;
+                const sampleText = totalCount === 1 ? 'sample' : 'samples';
+
+                let message = `You're about to export ${totalCount} ${sampleText}.<br>`;
+
+                if (reservedByMeCount > 0 && availableCount > 0) {
+                    message += `<small class="text-muted">${availableCount} will be newly reserved, ${reservedByMeCount} already reserved by you.</small>`;
+                } else if (reservedByMeCount > 0 && availableCount === 0) {
+                    message += `<small class="text-muted">All selected samples are already reserved by you.</small>`;
+                } else {
+                    message += `<small class="text-muted">All selected samples will be marked as reserved.</small>`;
+                }
+
+                document.getElementById('export-message').innerHTML = message;
+
+                // Show modal
+                const modalElement = document.getElementById('exportConfirmModal');
+                const existingInstance = bootstrap.Modal.getInstance(modalElement);
+                if (existingInstance) {
+                    existingInstance.dispose();
+                }
+
+                document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.remove());
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+
+                const exportModal = new bootstrap.Modal(modalElement);
                 exportModal.show();
             });
         }
 
-        // Confirm export button
-        const confirmExportBtn = document.getElementById('confirm-export-btn');
-        if (confirmExportBtn) {
-            confirmExportBtn.addEventListener('click', function() {
+        // Confirm export button - use event delegation to avoid stale references
+        document.addEventListener('click', function(e) {
+            if (e.target && e.target.id === 'confirm-export-btn') {
+                console.log('Confirming export...');
+
                 addSelectedSampleInputs();
                 batchActionsForm.action = "{% url 'core:export_samples' %}";
 
-                // Set a flag to reload the page after form submission
-                sessionStorage.setItem('shouldReload', 'true');
+                // Hide modal immediately
+                const modalElement = document.getElementById('exportConfirmModal');
+                const modalInstance = bootstrap.Modal.getInstance(modalElement);
+                if (modalInstance) {
+                    modalInstance.hide();
+                }
 
-                batchActionsForm.submit();
-
-                // If the form submits normally (not as a file download), reload
-                setTimeout(function() {
-                    if (sessionStorage.getItem('shouldReload') === 'true') {
+                // Submit form and refresh page after
+                setTimeout(() => {
+                    batchActionsForm.submit();
+                    setTimeout(() => {
                         window.location.reload();
-                        sessionStorage.removeItem('shouldReload');
-                    }
-                }, 1000); // Wait a second to allow server processing
-            });
-        }
+                    }, 1000);
+                }, 100);
+            }
+        });
+
+        // Add cleanup when modal is hidden
+        document.getElementById('exportConfirmModal').addEventListener('hidden.bs.modal', function() {
+            // Force cleanup
+            const instance = bootstrap.Modal.getInstance(this);
+            if (instance) {
+                instance.dispose();
+            }
+
+            // Clean up any remaining backdrop elements
+            setTimeout(() => {
+                document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.remove());
+                document.body.classList.remove('modal-open');
+                document.body.style.overflow = '';
+                document.body.style.paddingRight = '';
+            }, 50);
+        });
 
         // Make Available button
         if (makeAvailableBtn) {
@@ -585,6 +640,10 @@
 
                 const checkedCount = document.querySelectorAll('.sample-checkbox:checked').length;
                 if (checkedCount === 0) return;
+
+                // Add proper grammar
+                const sampleText = checkedCount === 1 ? 'sample' : 'samples';
+                const theseText = checkedCount === 1 ? 'this sample' : 'these samples';
 
                 // Create a modal dynamically
                 const modalHTML = `
@@ -598,9 +657,9 @@
                                 <div class="modal-body">
                                     <div class="alert alert-success">
                                         <i class="bi bi-info-circle me-2"></i>
-                                        You're about to mark <span class="fw-bold">${checkedCount}</span> samples as available.
+                                        You're about to mark <span class="fw-bold">${checkedCount}</span> ${sampleText} as available.
                                     </div>
-                                    <p>This will release these samples and make them available for all users.</p>
+                                    <p>This will release ${theseText} and make them available for all users.</p>
                                 </div>
                                 <div class="modal-footer">
                                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -639,13 +698,11 @@
                 this.style.backgroundColor = '';
             });
         });
+
+        // Call this after all event listeners are set up
+        updateButtonState();
     });
 </script>
-
-{{ block.super }}
-<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
-<link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
 
 <script>
 $(document).ready(function() {
@@ -706,5 +763,5 @@ $(document).ready(function() {
     });
 });
 </script>
-
+{{ block.super }}
 {% endblock %}

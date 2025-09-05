@@ -104,7 +104,7 @@ def inventory(request):
     negative_target_id = request.GET.get('negative_target', '')
 
     # Start with all samples
-    samples = PCRSample.objects.all()
+    samples = PCRSample.objects.all().order_by('mikrogen_internal_number')
 
     # Search functionality
     search_term = request.GET.get('search', '')
@@ -706,14 +706,20 @@ def settings(request):
                     storage_type = request.POST.get('type')
                     parent_id = request.POST.get('parent_id')
 
+                    # Add debug prints
+                    print(f"DEBUG: Adding storage place - name: {name}, type: {storage_type}, parent_id: {parent_id}")
+
                     parent = None
                     if parent_id:
                         try:
                             parent = StoragePlace.objects.get(id=parent_id)
+                            print(f"DEBUG: Found parent: {parent.name}")
                         except StoragePlace.DoesNotExist:
+                            print(f"DEBUG: Parent with ID {parent_id} not found")
                             parent = None
 
-                    StoragePlace.objects.create(name=name, type=storage_type, parent=parent)
+                    new_storage = StoragePlace.objects.create(name=name, type=storage_type, parent=parent)
+                    print(f"DEBUG: Created storage place: {new_storage.id}")
                     messages.success(request, f"{storage_type.capitalize()} '{name}' added successfully.")
 
         elif action == 'edit':
@@ -1063,8 +1069,8 @@ def mark_samples_available(request):
             sample.not_found = False
             sample.save()
 
-        messages.success(request, f"{len(sample_ids)} samples made available.")
-        return redirect('core:inventory')
+        sample_text = "sample" if len(sample_ids) == 1 else "samples"
+        messages.success(request, f"{len(sample_ids)} {sample_text} made available.")
 
     return redirect('core:inventory')
 
@@ -1266,6 +1272,11 @@ def export_samples(request):
         return response
 
     return redirect('core:inventory')
+
+@login_required
+def check_export_message(request):
+    message = request.session.pop('export_message', None)
+    return JsonResponse({'message': message})
 
 @login_required
 def import_samples(request):
