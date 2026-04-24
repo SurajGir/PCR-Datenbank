@@ -5,14 +5,16 @@ from django.db.models import Q, Count, F, ExpressionWrapper, FloatField
 from django.contrib import messages
 from django.contrib.auth.models import User
 from django.core.files.storage import FileSystemStorage
+from django.views.decorators.http import require_POST
+from django.db import models
 import os
 import json
-import csv
+import tempfile
 import pandas as pd
 from datetime import datetime
 from io import BytesIO
-from django.views.decorators.http import require_POST
-from apps.core.models import StoragePlace
+from pathlib import Path
+from typing import Union, Optional
 
 from .models import (
     PCRSample, Provider, Target, SampleType, PCRKit,
@@ -264,12 +266,34 @@ def get_storage_places(request):
 @user_passes_test(lambda u: u.is_staff)  # Only staff can access
 def manage_storage(request):
     """Page for managing storage locations"""
+    section = request.GET.get('section', 'storage')  # Add default section
 
     if request.method == 'POST':
-        # Handle storage place movement
         action = request.POST.get('action')
+        option_type = request.POST.get('option_type')  # Get option_type from POST data
+        item_id = request.POST.get('item_id')
 
-        if action == 'move':
+        if action == 'delete':
+            if not item_id:
+                messages.error(request, "No item ID provided for deletion.")
+                return redirect('core:manage_storage')
+
+            try:
+                storage_place = get_object_or_404(StoragePlace, id=item_id)
+
+                # Check if the storage place contains samples or other storage places
+                if PCRSample.objects.filter(storage_place=storage_place).exists():
+                    messages.error(request, f"Cannot delete {storage_place.name} because it contains samples.")
+                elif StoragePlace.objects.filter(parent=storage_place).exists():
+                    messages.error(request, f"Cannot delete {storage_place.name} because it contains other storage locations.")
+                else:
+                    name = storage_place.name
+                    storage_place.delete()
+                    messages.success(request, f"{name} deleted successfully.")
+            except Exception as e:
+                messages.error(request, f"Cannot delete storage place: {str(e)}")
+
+        elif action == 'move':
             item_id = request.POST.get('item_id')
             new_parent_id = request.POST.get('new_parent_id')
 
@@ -333,22 +357,58 @@ def manage_storage(request):
                     messages.success(request, f"New {type_value} '{name}' added successfully.")
 
         elif action == 'delete':
+            option_id = request.POST.get('option_id')
             item_id = request.POST.get('item_id')
 
-            try:
-                item = StoragePlace.objects.get(id=item_id)
+            if not item_id and not option_id:  # Check for either item_id or option_id
+                messages.error(request, "No ID provided for deletion.")
+                return redirect(f'/settings/?section={section}')
 
-                # Check if the storage place is in use
-                if PCRSample.objects.filter(storage_place=item).exists():
-                    messages.error(request, f"Cannot delete {item.name} because it contains samples.")
-                elif StoragePlace.objects.filter(parent=item).exists():
-                    messages.error(request, f"Cannot delete {item.name} because it contains other storage locations.")
-                else:
-                    name = item.name
-                    item.delete()
-                    messages.success(request, f"{name} deleted successfully.")
-            except StoragePlace.DoesNotExist:
-                messages.error(request, "Storage place not found.")
+            try:
+                if option_type == 'target':
+                    target = get_object_or_404(Target, id=option_id)
+                    name = target.name
+                    target.delete()
+                    messages.success(request, f"Target '{name}' deleted successfully.")
+                elif option_type == 'sample_type':
+                    sample_type = get_object_or_404(SampleType, id=option_id)
+                    name = sample_type.name
+                    sample_type.delete()
+                    messages.success(request, f"Sample type '{name}' deleted successfully.")
+                elif option_type == 'provider':
+                    provider = get_object_or_404(Provider, id=option_id)
+                    name = provider.name
+                    provider.delete()
+                    messages.success(request, f"Provider '{name}' deleted successfully.")
+                elif option_type == 'extractor':
+                    extractor = get_object_or_404(Extractor, id=option_id)
+                    name = extractor.name
+                    extractor.delete()
+                    messages.success(request, f"Extractor '{name}' deleted successfully.")
+                elif option_type == 'cycler':
+                    cycler = get_object_or_404(Cycler, id=option_id)
+                    name = cycler.name
+                    cycler.delete()
+                    messages.success(request, f"Cycler '{name}' deleted successfully.")
+                elif option_type == 'pcr_kit':
+                    kit = get_object_or_404(PCRKit, id=option_id)
+                    name = kit.name
+                    kit.delete()
+                    messages.success(request, f"PCR Kit '{name}' deleted successfully.")
+                elif option_type == 'storage_place':
+                    storage_place = get_object_or_404(StoragePlace, id=item_id)
+
+                    # Check if the storage place contains samples
+                    if PCRSample.objects.filter(storage_place=storage_place).exists():
+                        messages.error(request, f"Cannot delete {storage_place.name} because it contains samples.")
+                    elif StoragePlace.objects.filter(parent=storage_place).exists():
+                        messages.error(request, f"Cannot delete {storage_place.name} because it contains other storage locations.")
+                    else:
+                        name = storage_place.name
+                        storage_place.delete()
+                        messages.success(request, f"{name} deleted successfully.")
+            except Exception as e:
+                messages.error(request, f"Cannot delete this {option_type}: {str(e)}")
 
     # Get all storage places organized hierarchically
     rooms = StoragePlace.objects.filter(type='room').order_by('name')
@@ -670,205 +730,73 @@ def delete_sample(request, sample_id):
 @login_required
 def settings(request):
     """Settings page for managing dropdown options"""
-    # Get the section from the URL parameter
-    section = request.GET.get('section', 'targets')  # Default to targets
+    # Get the section from the URL parameter or POST data
+    section = request.GET.get('section', request.POST.get('section', 'targets'))  # Get from either GET or POST, default to targets
 
-    # Handle form submissions for adding/editing/deleting options
     if request.method == 'POST':
         action = request.POST.get('action')
         option_type = request.POST.get('option_type')
+        option_id = request.POST.get('option_id')
+        item_id = request.POST.get('item_id')
 
-        if action == 'add':
-            name = request.POST.get('name')
-            if not name:
-                messages.error(request, "Name cannot be empty.")
-            else:
-                if option_type == 'target':
-                    Target.objects.create(name=name)
-                    messages.success(request, f"Target '{name}' added successfully.")
-                elif option_type == 'sample_type':
-                    SampleType.objects.create(name=name)
-                    messages.success(request, f"Sample type '{name}' added successfully.")
-                elif option_type == 'provider':
-                    Provider.objects.create(name=name)
-                    messages.success(request, f"Provider '{name}' added successfully.")
-                elif option_type == 'extractor':
-                    Extractor.objects.create(name=name)
-                    messages.success(request, f"Extractor '{name}' added successfully.")
-                elif option_type == 'cycler':
-                    Cycler.objects.create(name=name)
-                    messages.success(request, f"Cycler '{name}' added successfully.")
-                elif option_type == 'pcr_kit':
-                    kit_type = request.POST.get('kit_type', 'mikrogen')
-                    PCRKit.objects.create(name=name, type=kit_type)
-                    messages.success(request, f"PCR Kit '{name}' added successfully.")
-                elif option_type == 'storage_place':
-                    storage_type = request.POST.get('type')
-                    parent_id = request.POST.get('parent_id')
-
-                    # Add debug prints
-                    print(f"DEBUG: Adding storage place - name: {name}, type: {storage_type}, parent_id: {parent_id}")
-
-                    parent = None
-                    if parent_id:
-                        try:
-                            parent = StoragePlace.objects.get(id=parent_id)
-                            print(f"DEBUG: Found parent: {parent.name}")
-                        except StoragePlace.DoesNotExist:
-                            print(f"DEBUG: Parent with ID {parent_id} not found")
-                            parent = None
-
-                    new_storage = StoragePlace.objects.create(name=name, type=storage_type, parent=parent)
-                    print(f"DEBUG: Created storage place: {new_storage.id}")
-                    messages.success(request, f"{storage_type.capitalize()} '{name}' added successfully.")
-
-        elif action == 'edit':
-            option_id = request.POST.get('option_id')
-            name = request.POST.get('name')
-
-            if not name:
-                messages.error(request, "Name cannot be empty.")
-            else:
-                if option_type == 'target':
-                    target = get_object_or_404(Target, id=option_id)
-                    target.name = name
-                    target.save()
-                    messages.success(request, f"Target updated successfully.")
-                elif option_type == 'sample_type':
-                    sample_type = get_object_or_404(SampleType, id=option_id)
-                    sample_type.name = name
-                    sample_type.save()
-                    messages.success(request, f"Sample type updated successfully.")
-                elif option_type == 'provider':
-                    provider = get_object_or_404(Provider, id=option_id)
-                    provider.name = name
-                    provider.save()
-                    messages.success(request, f"Provider updated successfully.")
-                elif option_type == 'extractor':
-                    extractor = get_object_or_404(Extractor, id=option_id)
-                    extractor.name = name
-                    extractor.save()
-                    messages.success(request, f"Extractor updated successfully.")
-                elif option_type == 'cycler':
-                    cycler = get_object_or_404(Cycler, id=option_id)
-                    cycler.name = name
-                    cycler.save()
-                    messages.success(request, f"Cycler updated successfully.")
-                elif option_type == 'pcr_kit':
-                    kit = get_object_or_404(PCRKit, id=option_id)
-                    kit.name = name
-                    kit_type = request.POST.get('kit_type')
-                    if kit_type:
-                        kit.type = kit_type
-                    kit.save()
-                    messages.success(request, f"PCR Kit updated successfully.")
-
-        elif action == 'move':
-            item_id = request.POST.get('item_id')
-            new_parent_id = request.POST.get('new_parent_id')
-
-            item = get_object_or_404(StoragePlace, id=item_id)
-
-            # Prevent circular references
-            if new_parent_id:
-                new_parent = get_object_or_404(StoragePlace, id=new_parent_id)
-
-                # Check if new_parent is a descendant of item
-                current = new_parent
-                while current:
-                    if current.id == item.id:
-                        messages.error(request, "Cannot move a storage location into its own descendant.")
-                        return redirect(f'/settings/?section={section}')
-                    current = current.parent
-
-                # Check if the new parent is of the correct type
-                if item.type == 'freezer' and new_parent.type != 'room':
-                    messages.error(request, "Freezers can only be placed in rooms.")
-                elif item.type == 'drawer' and new_parent.type != 'freezer':
-                    messages.error(request, "Drawers can only be placed in freezers.")
-                elif item.type == 'box' and new_parent.type != 'drawer':
-                    messages.error(request, "Boxes can only be placed in drawers.")
-                else:
-                    item.parent = new_parent
-                    item.save()
-                    messages.success(request, f"{item.name} moved successfully.")
-            else:
-                # Moving to top level (only rooms should be at top level)
-                if item.type != 'room':
-                    messages.error(request, "Only rooms can be at the top level.")
-                else:
-                    item.parent = None
-                    item.save()
-                    messages.success(request, f"{item.name} moved to top level.")
-
-        elif action == 'delete':
-            item_id = request.POST.get('item_id')
-
-            if not item_id:  # Add this check
-                messages.error(request, "No item ID provided for deletion.")
-                return redirect(f'/settings/?section={section}')
-
+        if action == 'delete':
             try:
+                if not (item_id or option_id):
+                    messages.error(request, "No ID provided for deletion.")
+                    return redirect('core:settings') if not section else redirect(f'/settings/?section={section}')
+
+                delete_id = option_id if option_id else item_id
+                success_message = None
+
                 if option_type == 'target':
-                    target = get_object_or_404(Target, id=option_id)
-                    name = target.name
-                    target.delete()
-                    messages.success(request, f"Target '{name}' deleted successfully.")
+                    item = get_object_or_404(Target, id=delete_id)
+                    name = item.name
+                    item.delete()
+                    success_message = f"Target '{name}' deleted successfully."
                 elif option_type == 'sample_type':
-                    sample_type = get_object_or_404(SampleType, id=option_id)
-                    name = sample_type.name
-                    sample_type.delete()
-                    messages.success(request, f"Sample type '{name}' deleted successfully.")
+                    item = get_object_or_404(SampleType, id=delete_id)
+                    name = item.name
+                    item.delete()
+                    success_message = f"Sample type '{name}' deleted successfully."
                 elif option_type == 'provider':
-                    provider = get_object_or_404(Provider, id=option_id)
-                    name = provider.name
-                    provider.delete()
-                    messages.success(request, f"Provider '{name}' deleted successfully.")
+                    item = get_object_or_404(Provider, id=delete_id)
+                    name = item.name
+                    item.delete()
+                    success_message = f"Provider '{name}' deleted successfully."
                 elif option_type == 'extractor':
-                    extractor = get_object_or_404(Extractor, id=option_id)
-                    name = extractor.name
-                    extractor.delete()
-                    messages.success(request, f"Extractor '{name}' deleted successfully.")
+                    item = get_object_or_404(Extractor, id=delete_id)
+                    name = item.name
+                    item.delete()
+                    success_message = f"Extractor '{name}' deleted successfully."
                 elif option_type == 'cycler':
-                    cycler = get_object_or_404(Cycler, id=option_id)
-                    name = cycler.name
-                    cycler.delete()
-                    messages.success(request, f"Cycler '{name}' deleted successfully.")
+                    item = get_object_or_404(Cycler, id=delete_id)
+                    name = item.name
+                    item.delete()
+                    success_message = f"Cycler '{name}' deleted successfully."
                 elif option_type == 'pcr_kit':
-                    kit = get_object_or_404(PCRKit, id=option_id)
-                    name = kit.name
-                    kit.delete()
-                    messages.success(request, f"PCR Kit '{name}' deleted successfully.")
+                    item = get_object_or_404(PCRKit, id=delete_id)
+                    name = item.name
+                    item.delete()
+                    success_message = f"PCR Kit '{name}' deleted successfully."
                 elif option_type == 'storage_place':
-                    storage_place = get_object_or_404(StoragePlace, id=item_id)
+                    item = get_object_or_404(StoragePlace, id=delete_id)
 
-                    # Check if the storage place contains samples
-                    if hasattr(storage_place, 'pcrsample_set') and storage_place.pcrsample_set.exists():
-                        messages.error(request, f"Cannot delete {storage_place.name} because it contains samples.")
+                    if PCRSample.objects.filter(storage_place=item).exists():
+                        messages.error(request, f"Cannot delete {item.name} because it contains samples.")
+                    elif StoragePlace.objects.filter(parent=item).exists():
+                        messages.error(request, f"Cannot delete {item.name} because it contains other storage locations.")
                     else:
-                        # Count child storage places for the message
-                        child_count = StoragePlace.objects.filter(parent=storage_place).count()
+                        name = item.name
+                        item.delete()
+                        success_message = f"{name} deleted successfully."
 
-                        # Get the type name for better messaging
-                        type_name = storage_place.get_type_display()
-                        name = storage_place.name
+                if success_message:
+                    messages.success(request, success_message)
 
-                        # Delete the storage place and all its children (CASCADE will handle this)
-                        storage_place.delete()
-
-                        if child_count > 0:
-                            messages.success(request,
-                                             f"{type_name} '{name}' and its {child_count} child storage location(s) deleted successfully.")
-                        else:
-                            messages.success(request, f"{type_name} '{name}' deleted successfully.")
             except Exception as e:
-                messages.error(request,
-                               f"Cannot delete this {option_type} because it is being used by samples: {str(e)}")
+                messages.error(request, f"Cannot delete this {option_type}: {str(e)}")
 
-        # Redirect to maintain the section after form submission
-        return redirect(f'/settings/?section={section}')
-
-    # GET request - prepare context based on section
+    # Prepare context with section-specific data
     context = {
         'section': section,
         'providers': Provider.objects.all(),
@@ -880,7 +808,6 @@ def settings(request):
         'mikrogen_kits': PCRKit.objects.filter(type='mikrogen'),
         'external_kits': PCRKit.objects.filter(type='external'),
         'pcr_kits': PCRKit.objects.all().order_by('type', 'name'),
-        # Added specific section data for storage places
         'rooms': StoragePlace.objects.filter(type='room', parent=None).order_by('name'),
         'storage_types': StoragePlace.STORAGE_TYPES,
     }
@@ -1193,308 +1120,101 @@ def refresh_samples(request):
     messages.success(request, f"{count} samples refreshed and returned to Available status.")
     return redirect('core:exported_list')
 
+def safe_convert_value(value: str, to_type: str = 'float') -> Union[float, int, str]:
+    """Safely convert a value to a numeric type or return original if not convertible"""
+    if not isinstance(value, str):
+        return value
+    try:
+        if '.' in value:
+            return float(value)
+        return int(value)
+    except (ValueError, TypeError):
+        return value
+
 @login_required
 def export_samples(request):
-    """Export selected samples to CSV"""
+    """Export selected samples to Excel"""
     if request.method == 'POST':
         sample_ids = request.POST.getlist('sample_ids')
-
-        # Debug to check if IDs are being received
-        print(f"Received sample_ids: {sample_ids}")
 
         if not sample_ids:
             messages.error(request, "No samples were selected for export.")
             return redirect('core:inventory')
 
         samples = PCRSample.objects.filter(id__in=sample_ids)
-
         if not samples.exists():
             messages.error(request, "Selected samples not found.")
             return redirect('core:inventory')
 
-        # Mark samples as in use
+        # Prepare data for export
+        export_data = []
         for sample in samples:
             if not sample.in_use:
-                sample.mark_in_use(request.user)
+                sample.in_use = True
+                sample.current_user = request.user
+                sample.save()
                 UsageLog.objects.create(
                     sample=sample,
                     user=request.user
                 )
 
-        # Create Excel response
-        current_date = datetime.now().strftime("%Y%m%d")
-        filename = f"PCR_Datenbank_{current_date}.xlsx"
-
-        response = HttpResponse(content_type='application/vnd.ms-excel')
-        response['Content-Disposition'] = f'attachment; filename="{filename}"'
-
-        # Use pandas to create Excel file
-        import pandas as pd
-        from io import BytesIO
-
-        data = []
-        for sample in samples:
-            data.append({
+            # Add sample data to export list
+            export_data.append({
                 'Mikrogen Internal Number': sample.mikrogen_internal_number,
                 'Provider Number': sample.provider_number or '',
-                'Provider': sample.provider.name,
-                'Target': sample.target.name,
+                'Provider': sample.provider.name if sample.provider else '',
+                'Target': sample.target.name if sample.target else '',
                 'Positive For': sample.positive_for or '',
                 'Negative For': sample.negative_for or '',
-                'Sample Type': sample.sample_type.name,
+                'Sample Type': sample.sample_type.name if sample.sample_type else '',
                 'Storage Place': sample.storage_place.name if sample.storage_place else '',
-                'Date of Draw': sample.date_of_draw if sample.date_of_draw else '',
-                'Age': sample.age if sample.age is not None else '',
+                'Date of Draw': sample.date_of_draw.strftime('%Y-%m-%d') if sample.date_of_draw else '',
+                'Age': str(sample.age) if sample.age is not None else '',
                 'Gender': sample.get_gender_display() if sample.gender else '',
                 'Country of Origin': sample.country_of_origin or '',
-                'Extraction Date': sample.extraction_date if sample.extraction_date else '',
+                'Extraction Date': sample.extraction_date.strftime('%Y-%m-%d') if sample.extraction_date else '',
                 'Extractor': sample.extractor.name if sample.extractor else '',
                 'Cycler': sample.cycler.name if sample.cycler else '',
                 'PCR Kit (Mikrogen)': sample.mikrogen_pcr_kit.name if sample.mikrogen_pcr_kit else '',
                 'PCR Kit (External)': sample.external_pcr_kit.name if sample.external_pcr_kit else '',
-                'CT Value (Mikrogen)': sample.mikrogen_ct_value if sample.mikrogen_ct_value is not None else '',
-                'CT Value (External)': sample.external_ct_value if sample.external_ct_value is not None else '',
-                'Sample Volume': sample.sample_volume,
-                'Sample Volume Remaining': sample.sample_volume_remaining,
+                'CT Value (Mikrogen)': str(sample.mikrogen_ct_value) if sample.mikrogen_ct_value is not None else '',
+                'CT Value (External)': str(sample.external_ct_value) if sample.external_ct_value is not None else '',
+                'Sample Volume': str(sample.sample_volume),
+                'Sample Volume Remaining': str(sample.sample_volume_remaining),
                 'Notes': sample.notes or ''
             })
 
-        df = pd.DataFrame(data)
+        # Create Excel file using a temporary file
+        current_date = datetime.now().strftime("%Y%m%d")
+        filename = f"PCR_Datenbank_{current_date}.xlsx"
 
-        # Write to Excel
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False)
+        # Create Excel file
+        temp_path = os.path.join(tempfile.gettempdir(), filename)
+        df = pd.DataFrame(export_data)
 
-        output.seek(0)
-        response.write(output.getvalue())
-
-        return response
-
-    return redirect('core:inventory')
-
-@login_required
-def check_export_message(request):
-    message = request.session.pop('export_message', None)
-    return JsonResponse({'message': message})
-
-@login_required
-def import_samples(request):
-    """Import samples from Excel file"""
-    if request.method == 'POST' and request.FILES.get('excel_file'):
-        excel_file = request.FILES['excel_file']
-
-        # Check if file is an Excel file
-        if not excel_file.name.endswith(('.xls', '.xlsx')):
-            messages.error(request, "Uploaded file is not an Excel file.")
-            return redirect('core:import')
-
-        # Store the file temporarily if we need to process it again
-        if 'excel_file' in request.FILES:
-            temp_file = request.FILES['excel_file']
-            fs = FileSystemStorage(location='/tmp')
-            filename = fs.save(f"excel_import_{request.user.id}.xlsx", temp_file)
-            temp_file_path = fs.path(filename)
-        else:
-            temp_file_path = request.POST.get('temp_file_path')
-
-        # Process the Excel file
         try:
-            # Read the Excel file
-            df = pd.read_excel(temp_file_path if 'temp_file_path' in request.POST else excel_file)
+            with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+                df.to_excel(writer, index=False)
 
-            missing_columns = [col for col in
-                               ['Mikrogen Internal Number', 'Provider', 'Target', 'Sample Type', 'Sample Volume']
-                               if col not in df.columns]
+            # Read the file and create response
+            with open(temp_path, 'rb') as f:
+                response = HttpResponse(
+                    f.read(),
+                    content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+                )
+                response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-            if missing_columns:
-                messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
-                return redirect('core:import')
-
-            # Check for new targets before proceeding
-            if 'confirm_targets' not in request.POST:
-                # Collect all targets from Excel
-                excel_targets = set()
-
-                # From Target column
-                if 'Target' in df.columns:
-                    excel_targets.update(df['Target'].dropna().unique())
-
-                # From Positive For column
-                if 'Positive For' in df.columns:
-                    for value in df['Positive For'].dropna():
-                        if isinstance(value, str):
-                            excel_targets.update([t.strip() for t in value.split(',')])
-
-                # From Negative For column
-                if 'Negative For' in df.columns:
-                    for value in df['Negative For'].dropna():
-                        if isinstance(value, str):
-                            excel_targets.update([t.strip() for t in value.split(',')])
-
-                # Check against existing targets
-                existing_targets = set(Target.objects.values_list('name', flat=True))
-                new_targets = excel_targets - existing_targets
-
-                if new_targets:
-                    return render(request, 'core/confirm_targets.html', {
-                        'new_targets': sorted(new_targets),
-                        'temp_file_path': temp_file_path
-                    })
-
-            # If user confirmed targets or no new targets needed
-            if 'confirm_targets' in request.POST:
-                if request.POST['confirm_targets'] == 'yes':
-                    # Create new targets
-                    new_targets = request.POST.getlist('new_targets')
-                    for target_name in new_targets:
-                        Target.objects.get_or_create(name=target_name)
-                else:
-                    # User canceled the import
-                    messages.warning(request, "Import canceled - new targets were not added.")
-                    return redirect('core:import')
-
-            # Process rows
-            samples_created = 0
-            errors = []
-
-            for idx, row in df.iterrows():
-                try:
-                    # Skip rows with empty required fields
-                    if pd.isna(row['Mikrogen Internal Number']) or pd.isna(row['Sample Volume']):
-                        errors.append(f"Row {idx + 2}: Missing required fields")
-                        continue
-
-                    # Check for duplicates before proceeding
-                    mikrogen_number = str(row['Mikrogen Internal Number'])
-                    if PCRSample.objects.filter(mikrogen_internal_number=mikrogen_number).exists():
-                        errors.append(
-                            f"Row {idx + 2}: Sample with Mikrogen Internal Number '{mikrogen_number}' already exists in the database.")
-                        continue
-
-                    # Get or create related objects
-                    provider, _ = Provider.objects.get_or_create(name=row['Provider'])
-                    target, _ = Target.objects.get_or_create(name=row['Target'])
-                    sample_type, _ = SampleType.objects.get_or_create(name=row['Sample Type'])
-
-                    # Create sample with required fields
-                    sample = PCRSample(
-                        mikrogen_internal_number=str(row['Mikrogen Internal Number']),
-                        provider=provider,
-                        target=target,
-                        sample_type=sample_type,
-                        sample_volume=float(row['Sample Volume']),
-                        sample_volume_remaining=float(row['Sample Volume']),
-                        added_by=request.user
-                    )
-
-                    # Handle optional fields
-                    optional_fields = {
-                        'Positive For': 'positive_for',
-                        'Negative For': 'negative_for',
-                        'Storage Place': 'storage_place',
-                        'Date of Draw': 'date_of_draw',
-                        'Age': 'age',
-                        'Gender': 'gender',
-                        'Country of Origin': 'country_of_origin',
-                        'Extraction Date': 'extraction_date',
-                        'Extractor': 'extractor',
-                        'Cycler': 'cycler',
-                        'Notes': 'notes'
-                    }
-
-                    for excel_field, model_field in optional_fields.items():
-                        if excel_field in df.columns and not pd.isna(row[excel_field]):
-                            value = row[excel_field]
-
-                            # Handle specific field types
-                            if excel_field == 'Storage Place':
-                                storage_place, _ = StoragePlace.objects.get_or_create(name=value)
-                                sample.storage_place = storage_place
-                            elif excel_field == 'Extractor':
-                                extractor, _ = Extractor.objects.get_or_create(name=value)
-                                sample.extractor = extractor
-                            elif excel_field == 'Cycler':
-                                cycler, _ = Cycler.objects.get_or_create(name=value)
-                                sample.cycler = cycler
-                            elif excel_field == 'PCR Kit (Mikrogen)':
-                                kit, _ = PCRKit.objects.get_or_create(name=value, type='mikrogen')
-                                sample.mikrogen_pcr_kit = kit
-                            elif excel_field == 'PCR Kit (External)':
-                                kit, _ = PCRKit.objects.get_or_create(name=value, type='external')
-                                sample.external_pcr_kit = kit
-                            elif excel_field == 'Gender':
-                                # Normalize gender value
-                                gender = value.lower()
-                                if gender in ['m', 'male', 'männlich']:
-                                    sample.gender = 'male'
-                                elif gender in ['f', 'female', 'weiblich']:
-                                    sample.gender = 'female'
-                            else:
-                                setattr(sample, model_field, value)
-
-                    sample.save()
-                    samples_created += 1
-
-                except Exception as e:
-                    errors.append(f"Error in row {idx + 2}: {str(e)}")
-
-            # Clean up temp file
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
-            if errors:
-                messages.warning(request, f"Imported {samples_created} samples with {len(errors)} errors.")
-                for error in errors[:10]:  # Show only first 10 errors
-                    messages.error(request, error)
-                if len(errors) > 10:
-                    messages.error(request, f"... and {len(errors) - 10} more errors.")
-            else:
-                messages.success(request, f"Successfully imported {samples_created} samples.")
-
-            return redirect('core:inventory')
-
+            # Clean up
+            os.remove(temp_path)
+            return response
 
         except Exception as e:
-            if "violates unique constraint" in str(e) and "mikrogen_internal_number" in str(e):
+            messages.error(request, f"Error creating Excel file: {str(e)}")
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            return redirect('core:inventory')
 
-                import re
-
-                match = re.search(r'\(mikrogen_internal_number\)=\(([^)]+)\)', str(e))
-
-                number = match.group(1) if match else "unknown"
-
-                errors.append(
-                    f"Row {idx + 2}: Duplicate Mikrogen Internal Number '{number}'. This sample already exists in the database.")
-
-            else:
-
-                errors.append(f"Row {idx + 2}: {str(e)}")
-
-    return render(request, 'core/import.html')
-
-
-@login_required
-def exported_list(request):
-    # Get only samples currently in use by this user (distinct results)
-    samples = PCRSample.objects.filter(
-        current_user=request.user,
-        in_use=True
-    ).distinct().order_by('mikrogen_internal_number')
-
-    # Add volume percentage calculation
-    for sample in samples:
-        if sample.sample_volume > 0:
-            sample.volume_percentage = (sample.sample_volume_remaining / sample.sample_volume) * 100
-        else:
-            sample.volume_percentage = 0
-
-    context = {
-        'samples': samples,
-        'count': samples.count()
-    }
-
-    return render(request, 'core/exported_list.html', context)
+    return redirect('core:inventory')
 
 @login_required
 def download_template(request):
@@ -1526,17 +1246,268 @@ def download_template(request):
 
     df = pd.DataFrame(columns=columns)
 
-    # Create Excel file
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-        df.to_excel(writer, index=False)
+    # Create Excel file using a temporary file
+    filename = "pcr_samples_template.xlsx"
+    temp_path = os.path.join(tempfile.gettempdir(), filename)
 
-    # Prepare response
-    output.seek(0)
-    response = HttpResponse(
-        output.read(),
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    response['Content-Disposition'] = 'attachment; filename=pcr_samples_template.xlsx'
+    try:
+        with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
 
-    return response
+        # Read the file and create response
+        with open(temp_path, 'rb') as f:
+            response = HttpResponse(
+                f.read(),
+                content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+            )
+            response['Content-Disposition'] = f'attachment; filename="{filename}"'
+
+        # Clean up
+        os.remove(temp_path)
+        return response
+
+    except Exception as e:
+        messages.error(request, f"Error creating template: {str(e)}")
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+        return redirect('core:inventory')
+
+@login_required
+def import_samples(request):
+    """Import samples from Excel file"""
+    # Initialize variables at the start
+    errors = []
+    samples_created = 0
+    temp_dir = tempfile.gettempdir()
+    temp_file_path = None
+    current_row_idx = 0  # For error messages
+
+    if request.method == 'POST' and (request.FILES.get('excel_file') or 'confirm_targets' in request.POST):
+        excel_file = request.FILES.get('excel_file')
+
+        # Check if file is an Excel file
+        if excel_file and not excel_file.name.endswith(('.xls', '.xlsx')):
+            messages.error(request, "Uploaded file is not an Excel file.")
+            return redirect('core:import')
+
+        try:
+            # Store the file temporarily if we need to process it again
+            if 'excel_file' in request.FILES:
+                temp_file = request.FILES['excel_file']
+                fs = FileSystemStorage(location=temp_dir)
+                filename = fs.save(f"excel_import_{request.user.id}.xlsx", temp_file)
+                temp_file_path = fs.path(filename)
+            else:
+                temp_file_path = request.POST.get('temp_file_path')
+
+            # Initialize row index for error messages
+            current_row_idx = 0
+
+            # Read the Excel file
+            df = pd.read_excel(temp_file_path if 'temp_file_path' in request.POST else excel_file)
+            print(f"DEBUG: Successfully read Excel file with {len(df)} rows")
+            print(f"DEBUG: Columns found: {list(df.columns)}")
+
+            # Check for missing columns right after reading the DataFrame
+            missing_columns = [col for col in ['Mikrogen Internal Number', 'Provider', 'Target', 'Sample Type', 'Sample Volume'] if col not in df.columns]
+            if missing_columns:
+                messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
+                return redirect('core:import')
+
+            # Validate and clean data
+            for index, row in df.iterrows():
+                current_row_idx = index + 2  # +2 because index is 0-based and we have a header row
+
+                # Required fields
+                mikrogen_internal_number = row.get('Mikrogen Internal Number')
+                provider_number = row.get('Provider Number')
+                target_name = row.get('Target')
+                sample_type_name = row.get('Sample Type')
+                storage_place_name = row.get('Storage Place')
+                date_of_draw = row.get('Date of Draw')
+
+                if not mikrogen_internal_number:
+                    errors.append(f"Row {current_row_idx}: Mikrogen Internal Number is required.")
+                    continue
+
+                # Check for duplicates
+                if PCRSample.objects.filter(mikrogen_internal_number=mikrogen_internal_number).exists():
+                    errors.append(f"Row {current_row_idx}: Sample with Mikrogen Internal Number '{mikrogen_internal_number}' already exists.")
+                    continue
+
+                # Create or get provider
+                provider, _ = Provider.objects.get_or_create(
+                    name=provider_number
+                )
+
+                # Create or get target
+                target, _ = Target.objects.get_or_create(
+                    name=target_name
+                )
+
+                # Create or get sample type
+                sample_type, _ = SampleType.objects.get_or_create(
+                    name=sample_type_name
+                )
+
+                # Create or get storage place
+                storage_place = None
+                if storage_place_name:
+                    storage_place, _ = StoragePlace.objects.get_or_create(
+                        name=storage_place_name,
+                        defaults={'type': 'room'}  # Default type, can be updated later
+                    )
+
+                # Get sample volume (mandatory)
+                try:
+                    volume_str = str(row.get('Sample Volume', '')).strip().lower()
+                    volume_str = volume_str.encode('ascii', 'ignore').decode('ascii')
+                    volume_str = volume_str.replace('ml', '').replace('μl', '').replace('µl', '').replace('ul', '').strip()
+                    sample_volume = float(volume_str)
+                except (ValueError, AttributeError):
+                    errors.append(f"Row {current_row_idx}: Invalid sample volume format.")
+                    continue
+
+                # Parse optional date_of_draw
+                date_of_draw = None
+                if pd.notna(row.get('Date of Draw')):
+                    try:
+                        date_val = row.get('Date of Draw')
+                        date_of_draw = pd.to_datetime(date_val).date()
+                    except:
+                        pass
+
+                # Create sample
+                sample = PCRSample(
+                    mikrogen_internal_number=str(mikrogen_internal_number),
+                    provider=provider,
+                    target=target,
+                    sample_type=sample_type,
+                    storage_place=storage_place,
+                    sample_volume=sample_volume,
+                    sample_volume_remaining=sample_volume,
+                    added_by=request.user
+                )
+
+                # Set dates on sample object
+                sample.date_of_draw = date_of_draw
+
+                # Handle extraction_date
+                if pd.notna(row.get('Extraction Date')):
+                    try:
+                        ext_val = row.get('Extraction Date')
+                        sample.extraction_date = pd.to_datetime(ext_val).date()
+                    except:
+                        pass
+
+                # Handle optional fields
+                optional_fields = {
+                    'age': row.get('Age'),
+                    'gender': row.get('Gender'),
+                    'country_of_origin': row.get('Country of Origin'),
+                    'extractor': row.get('Extractor'),
+                    'cycler': row.get('Cycler'),
+                    'mikrogen_pcr_kit': row.get('PCR Kit (Mikrogen)'),
+                    'external_pcr_kit': row.get('PCR Kit (External)'),
+                    'mikrogen_ct_value': row.get('CT Value (Mikrogen)'),
+                    'external_ct_value': row.get('CT Value (External)'),
+                    'notes': row.get('Notes'),
+                }
+
+                for field, value in optional_fields.items():
+                    if value is not None and (
+                            isinstance(value, str) and value.strip() or isinstance(value, (int, float))):
+                        try:
+                            # Handle date fields first
+                            if field in ['extraction_date'] and isinstance(value, str):
+                                value = pd.to_datetime(value).date()
+                                setattr(sample, field, value)
+                                continue
+
+                            # Handle gender
+                            if field == 'gender' and isinstance(value, str) and value.lower() in ['m', 'f']:
+                                value = 'male' if value.lower() == 'm' else 'female'
+
+                            # Handle numeric fields
+                            elif field in ['age', 'mikrogen_ct_value', 'external_ct_value']:
+                                if isinstance(value, str):
+                                    value = float(value) if '.' in value else int(value)
+
+                            # Skip ForeignKey fields
+                            elif field in ['extractor', 'cycler', 'mikrogen_pcr_kit', 'external_pcr_kit']:
+                                continue
+
+                            else:
+                                setattr(sample, field, value)
+                        except (ValueError, AttributeError):
+                            pass  # Skip invalid values
+
+                sample.save()
+                samples_created += 1
+
+            # Clean up temp file at the end
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+            # Return appropriate response based on errors
+            if errors:
+                request.session['import_errors'] = errors
+                messages.warning(request, f"""Imported {samples_created} samples with {len(errors)} errors.
+                    {', '.join(errors[:3])}
+                    <button onclick="showAllErrors()" class="show-all-errors">
+                        ... and {len(errors) - 3} more errors (click to view all)
+                    </button>""", extra_tags='safe')
+            else:
+                messages.success(request, f"Successfully imported {samples_created} samples.")
+
+            return redirect('core:inventory')
+
+        except Exception as e:
+            print(f"DEBUG: Import failed with error: {str(e)}")
+            print(f"DEBUG: Error type: {type(e)}")
+            import traceback
+            traceback.print_exc()
+
+            # Clean up temp file in case of error
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+            if "violates unique constraint" in str(e) and "mikrogen_internal_number" in str(e):
+                import re
+                match = re.search(r'\(mikrogen_internal_number\)=\(([^)]+)\)', str(e))
+                number = match.group(1) if match else "unknown"
+                messages.error(request, f"Sample with Mikrogen Internal Number '{number}' already exists in the database.")
+            else:
+                messages.error(request, f"Import failed: {str(e)}")
+            return redirect('core:import')
+
+    return render(request, 'core/import.html')
+
+@login_required
+def get_import_errors(request):
+    """AJAX endpoint to get import errors from session"""
+    errors = request.session.get('import_errors', [])
+    return JsonResponse({'errors': errors})
+
+@login_required
+def exported_list(request):
+    """View for displaying list of exported/in-use samples"""
+    # Get samples that are either in use or marked as not found
+    samples = PCRSample.objects.filter(
+        Q(in_use=True) | Q(not_found=True)
+    ).order_by('mikrogen_internal_number')
+
+    # Add status information for each sample
+    for sample in samples:
+        if sample.not_found:
+            sample.status = 'Not Found'
+        elif sample.active_use:
+            sample.status = 'In Use'
+        else:
+            sample.status = 'Reserved'
+
+    context = {
+        'samples': samples,
+    }
+
+    return render(request, 'core/exported_list.html', context)

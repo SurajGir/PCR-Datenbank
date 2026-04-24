@@ -55,7 +55,7 @@ class StoragePlace(models.Model):
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
 
     def __str__(self):
-        return f"{self.name} ({self.get_type_display()})"
+        return self.name
 
 class Extractor(models.Model):
     """Model for extractors"""

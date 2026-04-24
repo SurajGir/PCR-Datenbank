@@ -172,6 +172,7 @@ class Command(BaseCommand):
             ("Drawer 1", "drawer", "Freezer A"),
             ("Drawer 2", "drawer", "Freezer A"),
             ("Drawer 3", "drawer", "Freezer B"),
+            ("Drawer 4", "drawer", "Freezer C"),
             # Box locations
             ("Box A1", "box", "Drawer 1"),
             ("Box A2", "box", "Drawer 1"),

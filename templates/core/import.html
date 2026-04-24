@@ -12,7 +12,7 @@
                     <h5 class="card-title mb-0">Import Samples from Excel</h5>
                 </div>
                 <div class="card-body">
-                    <div class="alert alert-info">
+                    <div class="alert alert-warning">
                         <h5>Instructions</h5>
                         <p>Upload an Excel file (.xlsx or .xls) with the following columns:</p>
                         <ul>
@@ -22,7 +22,7 @@
                         <p>If providers, targets, sample types, or PCR kits don't exist in the system, they will be created automatically.</p>
                     </div>
 
-                    <form method="POST" enctype="multipart/form-data">
+                    <form method="POST" enctype="multipart/form-data" id="importForm">
                         {% csrf_token %}
                         <div class="mb-3">
                             <label for="excel_file" class="form-label">Excel File</label>

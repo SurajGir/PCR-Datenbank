@@ -27,4 +27,5 @@ urlpatterns = [
     path('record-active-use/', views.record_active_use, name='record_active_use'),
     path('samples/make-available/', views.mark_samples_available, name='mark_samples_available'),
     path('create-target/', views.create_target, name='create_target'),
+    path('get-import-errors/', views.get_import_errors, name='get_import_errors'),
 ]

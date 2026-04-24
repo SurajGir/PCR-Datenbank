@@ -81,7 +81,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'pcr_database',
         'USER': 'postgres',
-        'PASSWORD': 'Mdx1234',  # I see this is your password from settings.py
+        'PASSWORD': 'newpassword',
         'HOST': 'localhost',
         'PORT': '5433',
     }
