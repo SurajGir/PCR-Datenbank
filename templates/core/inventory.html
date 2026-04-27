@@ -33,6 +33,13 @@
     background: white;
   }
 
+.sample-checkbox:disabled {
+       pointer-events: none; /* Mouse clicks pass through it */
+       background-color: #e9ecef;
+       border-color: #dee2e6;
+       cursor: not-allowed !important;
+   }
+
   /* Action button styling */
   .filter-apply-btn {
     background-color: #3498db !important;
@@ -54,15 +61,38 @@
     cursor: not-allowed;
    }
 
-     /* Custom row background colors with controlled intensities */
-    .in-use-by-others {
-        background-color: rgba(220, 53, 69, 0.15) !important; /* Red for in-use, slightly reduced */
+/* --- Inventory Row Status Styles --- */
+
+    /* 1. Officially Missing (Red) */
+    .not-found-row {
+        background-color: rgba(220, 53, 69, 0.08) !important;
+        border-left: 5px solid #dc3545 !important;
     }
+
+    /* 2. Active Use - Blue for YOU */
+    .active-use-me {
+        background-color: rgba(13, 110, 253, 0.05) !important;
+        border-left: 5px solid #0d6efd !important;
+    }
+
+    /* 3. Reserved by YOU (Amber) */
     .reserved-by-me {
-        background-color: rgba(255, 193, 7, 0.15) !important; /* Yellow for my reservations */
+        background-color: rgba(255, 193, 7, 0.04) !important;
+        border-left: 5px solid #ffc107 !important;
     }
-    .reserved-by-others {
-        background-color: rgba(253, 126, 20, 0.08) !important; /* Very subtle peach for others' reservations */
+
+    /* 4. Taken by OTHERS (Warning Orange/Amber) */
+    /* This makes In-Use and Reserved look identical to non-owners */
+    .taken-by-others {
+        background-color: rgba(253, 126, 20, 0.04) !important;
+        border-left: 5px solid #fd7e14 !important;
+    }
+
+    .text-orange { color: #fd7e14 !important; }
+
+    /* Row Hover for better navigation */
+    .table-hover tbody tr:hover {
+        background-color: rgba(0, 0, 0, 0.04) !important;
     }
 </style>
 
@@ -239,22 +269,32 @@
                             </thead>
                             <tbody>
                                 {% for sample in samples %}
-                                <tr class="{% if sample.active_use %}in-use-by-others{% elif sample.in_use and sample.current_user == request.user %}reserved-by-me{% elif sample.in_use and not sample.active_use %}reserved-by-others{% endif %}">
+                                <tr class="
+                                    {% if sample.not_found and not sample.current_user %}
+                                        not-found-row
+                                    {% elif sample.current_user == request.user %}
+                                        {% if sample.active_use %}active-use-me{% else %}reserved-by-me{% endif %}
+                                    {% elif sample.current_user %}
+                                        taken-by-others
+                                    {% endif %}">
                                     <td>
                                         <div class="form-check">
-                                            {% if sample.in_use and sample.current_user != request.user %}
-                                                <!-- Disabled checkbox for samples in use or reserved by others -->
-                                                <input class="form-check-input sample-checkbox" type="checkbox" value="{{ sample.id }}" disabled
-                                                       title="{% if sample.active_use %}This sample is currently in use by {{ sample.current_user.username }}{% else %}This sample is reserved by {{ sample.current_user.username }}{% endif %}">
-                                            {% else %}
-                                                <!-- Regular checkbox for available samples or samples reserved by current user -->
-                                                <input class="form-check-input sample-checkbox" type="checkbox" value="{{ sample.id }}">
-                                            {% endif %}
+                                            <input class="form-check-input sample-checkbox" type="checkbox" value="{{ sample.id }}"
+                                               {% if sample.current_user and sample.current_user != request.user %}
+                                                   data-restricted="true"
+                                               {% endif %}
+                                               {% if sample.current_user %}
+                                                   data-reserved="true"
+                                               {% endif %}
+                                               {% if sample.not_found %}
+                                                   data-notfound="true"
+                                               {% endif %}>
                                         </div>
                                     </td>
-                                    <td><a href="{% url 'core:sample_detail' sample.mikrogen_internal_number %}" class="text-primary">{{ sample.mikrogen_internal_number }}</a></td>
+                                                                        <td><a href="{% url 'core:sample_detail' sample.mikrogen_internal_number %}" class="text-primary">{{ sample.mikrogen_internal_number }}</a></td>
                                     <td>{{ sample.provider_number }}</td>
                                     <td>{{ sample.provider.name }}</td>
+
                                     {% if filters.positive_target or filters.negative_target %}
                                         <td>{{ sample.positive_for|default:"-" }}</td>
                                         <td>{{ sample.negative_for|default:"-" }}</td>
@@ -262,16 +302,17 @@
                                         <td>{{ sample.target.name }}</td>
                                         <td>{{ sample.sample_type.name }}</td>
                                     {% endif %}
+
                                     <td>{{ sample.mikrogen_pcr_kit.name|default:"-" }}</td>
                                     <td>{{ sample.external_pcr_kit.name|default:"-" }}</td>
                                     <td>{% if sample.mikrogen_ct_value %}{{ sample.mikrogen_ct_value|floatformat:1 }}{% else %}-{% endif %}</td>
                                     <td>{% if sample.external_ct_value %}{{ sample.external_ct_value|floatformat:1 }}{% else %}-{% endif %}</td>
+
                                     <td>
                                         {% if sample.sample_volume_remaining > 0 %}
                                             <div class="d-flex align-items-center">
                                                 <div class="progress flex-grow-1 me-2" style="width: 60px; height: 8px;">
-                                                    <div class="progress-bar
-                                                    {% if sample.volume_percentage < 25 %}bg-danger{% elif sample.volume_percentage < 50 %}bg-warning{% else %}bg-success{% endif %}"
+                                                    <div class="progress-bar {% if sample.volume_percentage < 25 %}bg-danger{% elif sample.volume_percentage < 50 %}bg-warning{% else %}bg-success{% endif %}"
                                                     style="width: {{ sample.volume_percentage }}%"></div>
                                                 </div>
                                                 <span>{{ sample.sample_volume_remaining|floatformat:1 }} ml</span>
@@ -280,29 +321,19 @@
                                             <span class="text-danger">Empty</span>
                                         {% endif %}
                                     </td>
-                                    <td>
-                                        {% if sample.not_found %}
-                                            <span class="fw-bold text-warning">
-                                                <i class="bi bi-question-circle me-1"></i>Not Found
-                                            </span>
+
+                                    <td class="align-middle">
+                                        {% if sample.not_found and not sample.current_user %}
+                                            <span class="fw-bold text-danger"><i class="bi bi-question-circle me-1"></i>Not Found</span>
                                         {% elif sample.active_use %}
-                                            <span class="fw-bold text-danger">
-                                                <i class="bi bi-person me-1"></i> {{ sample.current_user.username }}
+                                            {# Blue text informs lab PCR is running, but row background is orange for others #}
+                                            <span class="fw-bold text-primary"><i class="bi bi-play-circle-fill me-1"></i>{{ sample.current_user.username }}</span>
+                                        {% elif sample.current_user %}
+                                            <span class="fw-bold text-orange">
+                                                <i class="bi bi-clock me-1"></i>Reserved{% if sample.current_user != request.user %} by {{ sample.current_user.username }}{% endif %}
                                             </span>
-                                        {% elif sample.in_use and not sample.active_use %}
-                                            {% if sample.current_user == request.user %}
-                                                <span class="fw-bold text-orange">
-                                                    <i class="bi bi-clock me-1"></i>Reserved
-                                                </span>
-                                            {% else %}
-                                                <span class="fw-bold text-orange">
-                                                    <i class="bi bi-clock me-1"></i>Reserved by {{ sample.current_user.username }}
-                                                </span>
-                                            {% endif %}
                                         {% else %}
-                                            <span class="fw-bold text-success">
-                                                <i class="bi bi-check-circle me-1"></i>Available
-                                            </span>
+                                            <span class="fw-bold text-success"><i class="bi bi-check-circle me-1"></i>Available</span>
                                         {% endif %}
                                     </td>
                                 </tr>
@@ -399,369 +430,231 @@
 {% endblock %}
 
 {% block extra_js %}
+{{ block.super }}
 
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
 <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
 <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/base/jquery-ui.css">
 
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
-        const selectAllCheckbox = document.getElementById('select-all');
-        const sampleCheckboxes = document.querySelectorAll('.sample-checkbox');
-        const makeAvailableBtn = document.getElementById('make-available-btn');
-        const exportSelectedBtn = document.getElementById('export-selected-btn');
-        const batchActionsForm = document.getElementById('batch-actions-form');
-        const selectedSamplesContainer = document.getElementById('selected-samples-container');
-        const toggleAdvancedFiltersBtn = document.getElementById('toggle-advanced-filters');
-        const advancedFilters = document.getElementById('advanced-filters');
+    $(document).ready(function() {
+    const $batchForm = $('#batch-actions-form');
+    const $container = $('#selected-samples-container');
 
-        // Advanced filters toggle with persistence
-        $("#toggle-advanced-filters").click(function() {
-            $("#advanced-filters").slideToggle(300, function() {
-                // Update button text based on visibility
-                if ($("#advanced-filters").is(":visible")) {
-                    $("#toggle-advanced-filters").html('<i class="bi bi-dash-circle me-1"></i> Hide Advanced Filters');
-                    // Store state in session storage
-                    sessionStorage.setItem('advancedFiltersOpen', 'true');
-                } else {
-                    $("#toggle-advanced-filters").html('<i class="bi bi-plus-circle me-1"></i> Advanced Filters');
-                    // Clear stored state
-                    sessionStorage.removeItem('advancedFiltersOpen');
-                }
-            });
+    // --- 1. THE GATEKEEPER ---
+    function syncIds() {
+        $container.empty();
+        // ONLY grab IDs that are checked AND NOT disabled
+        $('.sample-checkbox:checked:not(:disabled)').each(function() {
+            $container.append(`<input type="hidden" name="sample_ids" value="${$(this).val()}">`);
         });
+    }
 
-        // On page load, check session storage for advanced filters state
-        $(document).ready(function() {
-            const filtersOpen = sessionStorage.getItem('advancedFiltersOpen') === 'true';
-            const hasAdvancedFilters = {{ filters.positive_target|yesno:"true,false" }} || {{ filters.negative_target|yesno:"true,false" }};
 
-            if (filtersOpen || hasAdvancedFilters) {
-                $("#advanced-filters").show();
-                $("#toggle-advanced-filters").html('<i class="bi bi-dash-circle me-1"></i> Hide Advanced Filters');
-            }
+   // --- 2. THE BUTTON LOCK ---
+    function updateButtonState() {
+        const $checked = $('.sample-checkbox:checked');
+        const totalSelected = $checked.length;
 
-            // Remove stored state only when clear button is clicked
-            $("a[href='{% url 'core:inventory' %}']").click(function() {
-                sessionStorage.removeItem('advancedFiltersOpen');
-            });
-        });
+        // Identify if ANY selected sample is reserved or in use by ANYONE
+        const reservedCount = $checked.filter('[data-reserved="true"]').length;
+        const hasReserved = reservedCount > 0;
 
-        // Select all functionality
-        if (selectAllCheckbox) {
-            selectAllCheckbox.addEventListener('change', function() {
-                document.querySelectorAll('.sample-checkbox').forEach(checkbox => {
-                    checkbox.checked = selectAllCheckbox.checked;
-                    // Add this code to highlight rows
-                    const row = checkbox.closest('tr');
-                    if (checkbox.checked) {
-                        row.classList.add('selected');
-                    } else {
-                        row.classList.remove('selected');
-                    }
-                });
-                updateButtonState();
-            });
+        // Identify if ANY selected sample is restricted (owned by OTHERS specifically)
+        const hasRestricted = $checked.filter('[data-restricted="true"]').length > 0;
+
+        // Button is enabled ONLY if: At least one item is checked AND ZERO reserved items are checked
+        const isReady = (totalSelected > 0 && !hasReserved);
+
+        $('#make-available-btn, #export-selected-btn').prop('disabled', !isReady);
+
+        // Visual Feedback
+        if (hasRestricted || hasReserved) {
+            $('#make-available-btn, #export-selected-btn').addClass('btn-outline-danger').removeClass('btn-success btn-primary');
+        } else {
+            $('#make-available-btn').addClass('btn-success').removeClass('btn-outline-danger');
+            $('#export-selected-btn').addClass('btn-primary').removeClass('btn-outline-danger');
         }
-        // Individual checkbox change
-        document.querySelectorAll('.sample-checkbox').forEach(checkbox => {
-          checkbox.addEventListener('change', function() {
-            const row = this.closest('tr');
-            if (this.checked) {
-              row.classList.add('selected');
-            } else {
-              row.classList.remove('selected');
-            }
-            updateButtonState();
-          });
-        });
+    }
 
-        let lastChecked = null;
+    // --- 3. SELECTION LOGIC (WITH SHIFT-CLICK) ---
+    let lastChecked = null;
 
-        sampleCheckboxes.forEach(checkbox => {
-            checkbox.addEventListener('click', function(e) {
-                if (!lastChecked) {
-                    lastChecked = this;
-                    return;
-                }
-
-                if (e.shiftKey) {
-                    const start = Array.from(sampleCheckboxes).indexOf(this);
-                    const end = Array.from(sampleCheckboxes).indexOf(lastChecked);
-
-                    const checkboxesToUpdate = Array.from(sampleCheckboxes).slice(
-                        Math.min(start, end),
-                        Math.max(start, end) + 1
-                    );
-
-                    checkboxesToUpdate.forEach(cb => {
-                        cb.checked = lastChecked.checked;
-                    });
-                }
-
-                lastChecked = this;
-                updateButtonState();
-            });
-        });
-
-        // Update button disabled state
-        function updateButtonState() {
-            const checkedCount = document.querySelectorAll('.sample-checkbox:checked').length;
-            console.log("Checked count:", checkedCount);
-            console.log("Make Available button:", makeAvailableBtn);
-            console.log("Export Selected button:", exportSelectedBtn);
-
-            if (makeAvailableBtn) makeAvailableBtn.disabled = checkedCount === 0;
-            if (exportSelectedBtn) exportSelectedBtn.disabled = checkedCount === 0;
+    $('.sample-checkbox').on('click', function(e) {
+        // Stop disabled clicks
+        if (this.disabled) {
+            e.preventDefault();
+            this.checked = false;
+            return false;
         }
 
-        // Add hidden inputs for selected samples
-        function addSelectedSampleInputs() {
-            if (!selectedSamplesContainer) return;
+        const $checkboxes = $('.sample-checkbox:not(:disabled)');
 
-            selectedSamplesContainer.innerHTML = '';
-            document.querySelectorAll('.sample-checkbox:checked').forEach(checkbox => {
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'sample_ids';
-                input.value = checkbox.value;
-                selectedSamplesContainer.appendChild(input);
+        // Shift-click logic
+        if (e.shiftKey && lastChecked) {
+            const start = $checkboxes.index(this);
+            const end = $checkboxes.index(lastChecked);
+            const range = $checkboxes.slice(Math.min(start, end), Math.max(start, end) + 1);
+
+            range.prop('checked', lastChecked.checked);
+            range.each(function() {
+                $(this).closest('tr').toggleClass('selected', lastChecked.checked);
             });
         }
 
-        // Export selected button
-        if (exportSelectedBtn) {
-            exportSelectedBtn.addEventListener('click', function(e) {
-                e.preventDefault();
+        $(this).closest('tr').toggleClass('selected', this.checked);
+        lastChecked = this;
 
-                // Analyze selected samples
-                const selectedCheckboxes = document.querySelectorAll('.sample-checkbox:checked');
-                let availableCount = 0;
-                let reservedByMeCount = 0;
-                let notFoundCount = 0;
+        updateButtonState();
+    });
 
-                selectedCheckboxes.forEach(checkbox => {
-                    const row = checkbox.closest('tr');
-                    if (row.querySelector('td:last-child span').textContent.trim().includes('Not Found')) {
-                        notFoundCount++;
-                    } else if (row.classList.contains('reserved-by-me')) {
-                        reservedByMeCount++;
-                    } else {
-                        availableCount++;
-                    }
-                });
+    // STRICT SELECT ALL
+    $('#select-all').on('change', function() {
+        const isChecked = this.checked;
 
-                // Block if any "not found" samples
-                if (notFoundCount > 0) {
-                    const notFoundWarningModal = new bootstrap.Modal(document.getElementById('notFoundWarningModal'));
-                    notFoundWarningModal.show();
-                    return;
-                }
+        // ONLY touch checkboxes that don't belong to others
+        const $mine = $('.sample-checkbox:not(:disabled)');
 
-                // Update export message based on selection mix
-                const totalCount = selectedCheckboxes.length;
-                const sampleText = totalCount === 1 ? 'sample' : 'samples';
+        $mine.prop('checked', isChecked);
+        $mine.each(function() {
+            $(this).closest('tr').toggleClass('selected', isChecked);
+        });
 
-                let message = `You're about to export ${totalCount} ${sampleText}.<br>`;
-
-                if (reservedByMeCount > 0 && availableCount > 0) {
-                    message += `<small class="text-muted">${availableCount} will be newly reserved, ${reservedByMeCount} already reserved by you.</small>`;
-                } else if (reservedByMeCount > 0 && availableCount === 0) {
-                    message += `<small class="text-muted">All selected samples are already reserved by you.</small>`;
-                } else {
-                    message += `<small class="text-muted">All selected samples will be marked as reserved.</small>`;
-                }
-
-                document.getElementById('export-message').innerHTML = message;
-
-                // Show modal
-                const modalElement = document.getElementById('exportConfirmModal');
-                const existingInstance = bootstrap.Modal.getInstance(modalElement);
-                if (existingInstance) {
-                    existingInstance.dispose();
-                }
-
-                document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.remove());
-                document.body.classList.remove('modal-open');
-                document.body.style.overflow = '';
-                document.body.style.paddingRight = '';
-
-                const exportModal = new bootstrap.Modal(modalElement);
-                exportModal.show();
-            });
+        // Force "Select All" to uncheck itself if it couldn't select EVERYTHING
+        // (This prevents the "I thought I selected everything" confusion)
+        if (isChecked && $('.sample-checkbox:disabled').length > 0) {
+            $(this).prop('checked', false);
+            alert("Only your samples and available samples were selected. Reserved items were skipped.");
         }
 
-        // Confirm export button - use event delegation to avoid stale references
-        document.addEventListener('click', function(e) {
-            if (e.target && e.target.id === 'confirm-export-btn') {
-                console.log('Confirming export...');
+        updateButtonState();
+    });
 
-                addSelectedSampleInputs();
-                batchActionsForm.action = "{% url 'core:export_samples' %}";
+    // --- 4. EXPORT ACTION ---
+    $('#export-selected-btn').on('click', function(e) {
+        e.preventDefault();
+        syncIds();
 
-                // Hide modal immediately
-                const modalElement = document.getElementById('exportConfirmModal');
-                const modalInstance = bootstrap.Modal.getInstance(modalElement);
-                if (modalInstance) {
-                    modalInstance.hide();
-                }
+        const count = $container.find('input').length;
+        if (count === 0) return;
 
-                // Submit form and refresh page after
-                setTimeout(() => {
-                    batchActionsForm.submit();
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1000);
-                }, 100);
-            }
+        // Check for "Not Found" rows in the selection
+        let hasNotFound = false;
+        $('.sample-checkbox:checked').each(function() {
+            if ($(this).closest('tr').hasClass('not-found-row')) hasNotFound = true;
         });
 
-        // Add cleanup when modal is hidden
-        document.getElementById('exportConfirmModal').addEventListener('hidden.bs.modal', function() {
-            // Force cleanup
-            const instance = bootstrap.Modal.getInstance(this);
-            if (instance) {
-                instance.dispose();
-            }
+        if (hasNotFound) {
+            new bootstrap.Modal(document.getElementById('notFoundWarningModal')).show();
+        } else {
+            $("#export-count").text(count);
+            new bootstrap.Modal(document.getElementById('exportConfirmModal')).show();
+        }
+    });
 
-            // Clean up any remaining backdrop elements
-            setTimeout(() => {
-                document.querySelectorAll('.modal-backdrop').forEach(backdrop => backdrop.remove());
-                document.body.classList.remove('modal-open');
-                document.body.style.overflow = '';
-                document.body.style.paddingRight = '';
-            }, 50);
-        });
+    $(document).on('click', '#confirm-export-btn', function() {
+        // 1. Grab the IDs right before submitting
+        syncIds();
 
-        // Make Available button
-        if (makeAvailableBtn) {
-            makeAvailableBtn.addEventListener('click', function(e) {
-                e.preventDefault();
+        // 2. Submit the form to download Excel and update database
+        $batchForm.attr('action', "{% url 'core:export_samples' %}").submit();
 
-                const checkedCount = document.querySelectorAll('.sample-checkbox:checked').length;
-                if (checkedCount === 0) return;
+        // 3. Hide the pop-up
+        const exportModal = bootstrap.Modal.getInstance(document.getElementById('exportConfirmModal'));
+        if (exportModal) {
+            exportModal.hide();
+        }
 
-                // Add proper grammar
-                const sampleText = checkedCount === 1 ? 'sample' : 'samples';
-                const theseText = checkedCount === 1 ? 'this sample' : 'these samples';
+        // 4. Wait 2 seconds for the server to finish, then HARD RELOAD
+        setTimeout(() => {
+            window.location.href = window.location.href.split('?')[0]; // Clears URL and forces fresh load
+        }, 800);
+    });
 
-                // Create a modal dynamically
-                const modalHTML = `
-                    <div class="modal fade" id="makeAvailableModal" tabindex="-1" aria-hidden="true">
-                        <div class="modal-dialog">
-                            <div class="modal-content">
-                                <div class="modal-header bg-success text-white">
-                                    <h5 class="modal-title"><i class="bi bi-check-circle me-2"></i>Make Available</h5>
-                                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
-                                </div>
-                                <div class="modal-body">
-                                    <div class="alert alert-success">
-                                        <i class="bi bi-info-circle me-2"></i>
-                                        You're about to mark <span class="fw-bold">${checkedCount}</span> ${sampleText} as available.
-                                    </div>
-                                    <p>This will release ${theseText} and make them available for all users.</p>
-                                </div>
-                                <div class="modal-footer">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                    <button type="button" class="btn btn-success" id="confirm-make-available-btn">Confirm</button>
-                                </div>
-                            </div>
+    // --- 5. MAKE AVAILABLE ACTION ---
+    $(document).on('click', '#make-available-btn', function(e) {
+        e.preventDefault();
+        syncIds();
+        const count = $container.find('input').length;
+        if (count === 0) return;
+
+        $('#makeAvailableModal').remove();
+        const modalHTML = `
+            <div class="modal fade" id="makeAvailableModal" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header bg-success text-white">
+                            <h5 class="modal-title">Make Available</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        </div>
+                        <div class="modal-body">Marking <b>${count}</b> samples as available.</div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-success" id="confirm-make-available-action">Confirm</button>
                         </div>
                     </div>
-                `;
+                </div>
+            </div>`;
+        $('body').append(modalHTML);
+        new bootstrap.Modal(document.getElementById('makeAvailableModal')).show();
+    });
 
-                // Add modal to DOM
-                const modalContainer = document.createElement('div');
-                modalContainer.innerHTML = modalHTML;
-                document.body.appendChild(modalContainer);
+    $(document).on('click', '#confirm-make-available-action', function() {
+        $batchForm.attr('action', "{% url 'core:mark_samples_available' %}").submit();
+    });
 
-                // Initialize and show modal
-                const modal = new bootstrap.Modal(document.getElementById('makeAvailableModal'));
-                modal.show();
+        // --- 5. SLIDERS & FILTERS ---
+        $("#ct-slider").slider({
+            range: true,
+            min: 0, max: 50,
+            values: [{{ filters.min_ct|default:0 }}, {{ filters.max_ct|default:50 }}],
+            slide: function(event, ui) {
+                $("#ct-range-display").text(ui.values[0] + " - " + ui.values[1]);
+                $("#min-ct").val(ui.values[0]);
+                $("#max-ct").val(ui.values[1]);
+            }
+        });
 
-                // Set up confirm button
-                document.getElementById('confirm-make-available-btn').addEventListener('click', function() {
-                    addSelectedSampleInputs();
-                    batchActionsForm.action = "{% url 'core:mark_samples_available' %}";
-                    batchActionsForm.submit();
-                });
-            });
-        }
+        $("#volume-slider").slider({
+            range: true,
+            min: 0, max: 1000,
+            values: [{{ filters.min_volume|default:0 }}, {{ filters.max_volume|default:1000 }}],
+            slide: function(event, ui) {
+                $("#volume-range-display").text(ui.values[0] + " - " + ui.values[1]);
+                $("#min-volume").val(ui.values[0]);
+                $("#max-volume").val(ui.values[1]);
+            }
+        });
 
-        // Add row highlight on hover
-        const tableRows = document.querySelectorAll('tbody tr');
-        tableRows.forEach(row => {
-            row.addEventListener('mouseover', function() {
-                this.style.backgroundColor = 'rgba(52, 152, 219, 0.1)';
-            });
-            row.addEventListener('mouseout', function() {
-                this.style.backgroundColor = '';
+        // Initialize displays
+        $("#ct-range-display").text($("#ct-slider").slider("values", 0) + " - " + $("#ct-slider").slider("values", 1));
+        $("#volume-range-display").text($("#volume-slider").slider("values", 0) + " - " + $("#volume-slider").slider("values", 1));
+
+        $("#toggle-advanced-filters").click(function() {
+            $("#advanced-filters").slideToggle(300, function() {
+                const isVisible = $(this).is(":visible");
+                sessionStorage.setItem('advancedFiltersOpen', isVisible);
+                $("#toggle-advanced-filters i").toggleClass('bi-plus-circle bi-dash-circle');
             });
         });
 
-        // Call this after all event listeners are set up
+        if (sessionStorage.getItem('advancedFiltersOpen') === 'true') {
+            $("#advanced-filters").show();
+            $("#toggle-advanced-filters i").removeClass('bi-plus-circle').addClass('bi-dash-circle');
+        }
+
+        $("#filter-form").on("submit", function() {
+            if ($("#min-ct").val() == "0" && $("#max-ct").val() == "50") {
+                $("#min-ct, #max-ct").removeAttr("name");
+            }
+            if ($("#min-volume").val() == "0" && $("#max-volume").val() == "1000") {
+                $("#min-volume, #max-volume").removeAttr("name");
+            }
+            return true;
+        });
+
+        // Initial button state
         updateButtonState();
     });
 </script>
-
-<script>
-$(document).ready(function() {
-    // Initialize CT value slider
-    $("#ct-slider").slider({
-        range: true,
-        min: 0,
-        max: 50,
-        values: [{{ filters.min_ct|default:"0" }}, {{ filters.max_ct|default:"50" }}],
-        slide: function(event, ui) {
-            $("#ct-range-display").text(ui.values[0] + " - " + ui.values[1]);
-            $("#min-ct").val(ui.values[0]);
-            $("#max-ct").val(ui.values[1]);
-        }
-    });
-
-    // Initialize Volume slider
-    $("#volume-slider").slider({
-        range: true,
-        min: 0,
-        max: 1000,
-        values: [{{ filters.min_volume|default:"0" }}, {{ filters.max_volume|default:"1000" }}],
-        slide: function(event, ui) {
-            $("#volume-range-display").text(ui.values[0] + " - " + ui.values[1]);
-            $("#min-volume").val(ui.values[0]);
-            $("#max-volume").val(ui.values[1]);
-        }
-    });
-
-    // Ensure default values are set on page load
-    $("#min-ct").val({{ filters.min_ct|default:"0" }});
-    $("#max-ct").val({{ filters.max_ct|default:"50" }});
-    $("#min-volume").val({{ filters.min_volume|default:"0" }});
-    $("#max-volume").val({{ filters.max_volume|default:"1000" }});
-
-    // Debug: Log values before form submission
-    $("#filter-form").on("submit", function() {
-        console.log("Target: " + $("#target").val());
-        console.log("Sample Type: " + $("#sample_type").val());
-        console.log("Min CT: " + $("#min-ct").val());
-        console.log("Max CT: " + $("#max-ct").val());
-        console.log("Min Volume: " + $("#min-volume").val());
-        console.log("Max Volume: " + $("#max-volume").val());
-
-        // Prevent submitting empty min/max values - if they're at defaults,
-        // better to not include them in the query to avoid overfiltering
-        if ($("#min-ct").val() == "0" && $("#max-ct").val() == "50") {
-            $("#min-ct").removeAttr("name");
-            $("#max-ct").removeAttr("name");
-        }
-
-        if ($("#min-volume").val() == "0" && $("#max-volume").val() == "1000") {
-            $("#min-volume").removeAttr("name");
-            $("#max-volume").removeAttr("name");
-        }
-
-        return true;
-    });
-});
-</script>
-{{ block.super }}
 {% endblock %}

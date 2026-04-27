@@ -1,187 +1,396 @@
-{% extends "base.html" %}
+{% extends 'base.html' %}
+{% load static %}
 
 {% block title %}Exported Samples - PCR Datenbank{% endblock %}
 
 {% block content %}
-<div class="container mt-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2>Exported Samples</h2>
-        <div>
-            <button class="btn btn-outline-primary" onclick="location.href='{% url 'core:inventory' %}'">
-                <i class="bi bi-arrow-left"></i> Back to Inventory
-            </button>
+<style>
+  /* Match Inventory styling */
+  .header-card {
+    background-color: #34495e !important;
+    color: white;
+  }
+
+  .table-header {
+    background-color: #304878;
+    color: white;
+  }
+
+  tr.selected {
+    background-color: rgba(52, 152, 219, 0.1) !important;
+    outline: 2px solid rgba(52, 152, 219, 0.3);
+  }
+
+  /* --- Matte Solid Status Palette --- */
+
+  /* 1. In Use (Matte Forest Green) */
+  .badge-inuse { background-color: #5c9660; color: white; padding: 5px 8px; border-radius: 4px; }
+  .btn-subtle-success { background-color: #5c9660; color: white; border: none; }
+  .btn-subtle-success:hover { background-color: #4a7d4e; color: white; }
+  .btn-subtle-success:disabled { background-color: #5c9660; opacity: 0.6; }
+
+  /* 2. Reserved / Release (Matte Bronze/Amber) */
+  .badge-reserved { background-color: #d48c3e; color: white; padding: 5px 8px; border-radius: 4px; }
+  .bg-subtle-warning { background-color: #d48c3e !important; color: white; }
+  .btn-subtle-warning { background-color: #d48c3e; color: white; border: none; }
+  .btn-subtle-warning:hover { background-color: #b87630; color: white; }
+  .btn-subtle-warning:disabled { background-color: #d48c3e; opacity: 0.6; }
+
+  /* 3. Not Found (Matte Brick Red) */
+  .badge-notfound { background-color: #c25953; color: white; padding: 5px 8px; border-radius: 4px; }
+  .bg-subtle-red { background-color: #c25953 !important; color: white; }
+  .btn-subtle-red { background-color: #c25953; color: white; border: none; }
+  .btn-subtle-red:hover { background-color: #a64641; color: white; }
+  .btn-subtle-red:disabled { background-color: #c25953; opacity: 0.6; }
+
+    /* --- Custom Matte Colors for Modals --- */
+  .bg-matte-red { background-color: #c25953 !important; color: white; }
+  .btn-matte-red { background-color: #c25953; color: white; border: none; }
+  .btn-matte-red:hover { background-color: #a64641; color: white; }
+  .alert-matte-red { background-color: #fcf0ef; color: #8f3d38; border: 1px solid #e8c4c2; }
+
+  .bg-matte-amber { background-color: #d48c3e !important; color: white; }
+  .btn-matte-amber { background-color: #d48c3e; color: white; border: none; }
+  .btn-matte-amber:hover { background-color: #b87630; color: white; }
+  .alert-matte-amber { background-color: #fdf5eb; color: #8a5a25; border: 1px solid #f0d5b6; }
+</style>
+
+<div class="container-fluid mt-4">
+    <div class="row mb-3">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-body py-3 d-flex justify-content-between align-items-center">
+                    <h2 class="h4 mb-0"><i class="bi bi-box-arrow-right me-2"></i>My Exported Samples</h2>
+                    <div class="button-group">
+                        <button class="btn btn-outline-secondary me-2" onclick="location.href='{% url 'core:inventory' %}'">
+                            <i class="bi bi-arrow-left"></i> Inventory
+                        </button>
+                        <button type="button" class="btn btn-success action-btn" id="btn-in-use" disabled>
+                            <i class="bi bi-play-fill me-1"></i> Start Use
+                        </button>
+                        <button type="button" class="btn btn-primary action-btn" id="btn-record-use" disabled>
+                            <i class="bi bi-droplet-half me-1"></i> Record Use
+                        </button>
+                        <button type="button" class="btn btn-danger action-btn" id="btn-not-found" disabled>
+                            <i class="bi bi-question-circle me-1"></i> Not Found
+                        </button>
+                        <button type="button" class="btn btn-warning action-btn text-dark" id="btn-available" disabled>
+                            <i class="bi bi-arrow-counterclockwise me-1"></i> Release
+                        </button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
-    {% if samples %}
-        <form method="post" id="samplesForm">
-            {% csrf_token %}
-            <div class="table-responsive">
-                <table class="table table-striped">
-                    <thead>
-                        <tr>
-                            <th><input type="checkbox" id="selectAll" class="form-check-input"></th>
-                            <th>Mikrogen Number</th>
-                            <th>Target</th>
-                            <th>Sample Type</th>
-                            <th>Storage Place</th>
-                            <th>Status</th>
-                            <th>Current User</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for sample in samples %}
-                            <tr>
-                                <td>
-                                    <input type="checkbox" name="sample_ids" value="{{ sample.id }}"
-                                           class="form-check-input sample-checkbox"
-                                           {% if sample.current_user != request.user %}disabled{% endif %}>
-                                </td>
-                                <td>
-                                    <a href="{% url 'core:sample_detail' sample_id=sample.mikrogen_internal_number %}">
-                                        {{ sample.mikrogen_internal_number }}
-                                    </a>
-                                </td>
-                                <td>{{ sample.target.name }}</td>
-                                <td>{{ sample.sample_type.name }}</td>
-                                <td>{{ sample.storage_place.name|default:"Not specified" }}</td>
-                                <td>
-                                    {% if sample.not_found %}
-                                        <span class="badge bg-danger">Not Found</span>
-                                    {% elif sample.active_use %}
-                                        <span class="badge bg-success">In Use</span>
-                                    {% else %}
-                                        <span class="badge bg-warning text-dark">Reserved</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ sample.current_user.username }}</td>
-                                <td>
-                                    <div class="btn-group">
-                                        <a href="{% url 'core:sample_detail' sample_id=sample.mikrogen_internal_number %}"
-                                           class="btn btn-sm btn-outline-primary">
-                                            <i class="bi bi-eye"></i>
-                                        </a>
-                                    </div>
-                                </td>
-                            </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-
-            <div class="mt-3 mb-4">
-                <div class="btn-group">
-                    <button type="submit" class="btn btn-success" formaction="{% url 'core:record_active_use' %}"
-                            onclick="return confirmAction('Mark selected samples as In Use?')">
-                        Mark as In Use
-                    </button>
-                    <button type="button" class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#finishModal">
-                        Mark as Finished
-                    </button>
-                    <button type="submit" class="btn btn-danger" formaction="{% url 'core:mark_samples_not_found' %}"
-                            onclick="return confirmAction('Mark selected samples as Not Found?')">
-                        Mark as Not Found
-                    </button>
-                    <button type="submit" class="btn btn-warning" formaction="{% url 'core:mark_samples_available' %}"
-                            onclick="return confirmAction('Make selected samples available?')">
-                        Make Available
-                    </button>
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow">
+                <div class="card-header table-header d-flex justify-content-between align-items-center">
+                    <h5 class="card-title mb-0"><i class="bi bi-list-check me-2"></i>Current Reservations</h5>
+                    <span class="small">{{ samples|length }} samples total</span>
                 </div>
-            </div>
-        </form>
-
-        <!-- Finish Modal -->
-        <div class="modal fade" id="finishModal" tabindex="-1">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <form method="post" action="{% url 'core:mark_samples_finished' %}">
+                <div class="card-body p-0">
+                    <form id="batch-form" method="POST">
                         {% csrf_token %}
-                        <div class="modal-header">
-                            <h5 class="modal-title">Mark Samples as Finished</h5>
-                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div id="selected-samples"></div>
-                            <div class="mb-3">
-                                <label for="volume_used" class="form-label">Volume Used (µl)</label>
-                                <input type="number" class="form-control" id="volume_used" name="volume_used"
-                                       min="0" step="0.1" required>
-                            </div>
-                        </div>
-                        <div class="modal-footer">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Confirm</button>
+                        <div id="hidden-inputs-container"></div>
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0" id="samples-table">
+                                <thead class="table-light">
+                                    <tr>
+                                        <th width="40">
+                                            <input type="checkbox" id="select-all" class="form-check-input">
+                                        </th>
+                                        <th>Internal #</th>
+                                        <th>Target</th>
+                                        <th>Type</th>
+                                        <th>Storage</th>
+                                        <th>Status</th>
+                                        <th>Volume</th>
+                                        <th width="50">View</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for sample in samples %}
+                                    <tr>
+                                        <td>
+                                            <input type="checkbox" value="{{ sample.id }}"
+                                                   class="form-check-input sample-checkbox"
+                                                   {% if sample.current_user != request.user and not sample.not_found %}disabled{% endif %}>
+                                        </td>
+                                        <td><strong>{{ sample.mikrogen_internal_number }}</strong></td>
+                                        <td>{{ sample.target.name }}</td>
+                                        <td>{{ sample.sample_type.name }}</td>
+                                        <td>{{ sample.storage_place.name|default:"-" }}</td>
+                                        <td>
+                                            {% if sample.not_found %}
+                                                <span class="badge badge-notfound">Not Found</span>
+                                            {% elif sample.active_use %}
+                                                <span class="badge badge-inuse">In Use</span>
+                                            {% else %}
+                                                <span class="badge badge-reserved">Reserved</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            {% if sample.sample_volume_remaining > 0 %}
+                                                {{ sample.sample_volume_remaining|floatformat:1 }} ml
+                                            {% else %}
+                                                <span class="text-danger">Empty</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>
+                                            <a href="{% url 'core:sample_detail' sample.mikrogen_internal_number %}" class="btn btn-sm btn-link p-0">
+                                                <i class="bi bi-eye"></i>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% empty %}
+                                    <tr>
+                                        <td colspan="8" class="text-center py-5 text-muted">
+                                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+                                            No samples currently exported or in use.
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
                         </div>
                     </form>
                 </div>
             </div>
         </div>
-
-    {% else %}
-        <div class="alert alert-info">No samples are currently exported or in use.</div>
-    {% endif %}
+    </div>
 </div>
 
+<div class="modal fade" id="recordUseModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-primary text-white">
+                <h5 class="modal-title"><i class="bi bi-flask me-2"></i>Record Usage</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-info">
+                    You've selected <span id="record-use-count" class="fw-bold">0</span> sample(s).
+                </div>
+                <div class="mb-3">
+                    <label for="modal_volume_used" class="form-label">Volume Used per sample (ml)</label>
+                    <input type="number" class="form-control" id="modal_volume_used" step="0.1" min="0" value="0.0" required>
+                    <div class="form-text">This amount will be deducted from the available volume of each selected sample.</div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="confirm-record-use">Confirm Usage</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="availableModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-matte-amber">
+                <h5 class="modal-title"><i class="bi bi-arrow-counterclockwise me-2"></i>Release Samples</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-matte-amber">
+                    You are about to make <span id="avail-count" class="fw-bold">0</span> sample(s) available for all users again.
+                </div>
+                <p>This will remove them from your personal export list.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-matte-amber px-3 py-1 rounded" id="confirm-available">Confirm Release</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="notFoundModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-matte-red">
+                <h5 class="modal-title"><i class="bi bi-question-circle me-2"></i>Mark as Not Found</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-matte-red">
+                    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                    Warning: You are marking <span id="notfound-count" class="fw-bold">0</span> sample(s) as "Not Found".
+                </div>
+                <p>This status will be visible to all users.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn-matte-red px-3 py-1 rounded" id="confirm-notfound">Mark Not Found</button>
+            </div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
-{{ block.super }}
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // Select All functionality
-    const selectAllCheckbox = document.getElementById('selectAll');
-    const sampleCheckboxes = document.getElementsByClassName('sample-checkbox');
+    {{ block.super }}
 
-    selectAllCheckbox.addEventListener('change', function() {
-        Array.from(sampleCheckboxes).forEach(checkbox => {
-            if (!checkbox.disabled) {
-                checkbox.checked = selectAllCheckbox.checked;
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<script>
+$(document).ready(function() {
+    let lastChecked = null;
+
+    // --- 1. THE STRICT BUTTON LOGIC ---
+    function updateButtons() {
+        const $selected = $('.sample-checkbox:checked');
+        const count = $selected.length;
+
+        // Default: Disable all action buttons and clear tooltips
+        $('.action-btn').prop('disabled', true);
+        $('#btn-available').removeAttr('title');
+
+        if (count > 0) {
+            let allInUse = true;
+            let anyInUse = false;
+            let anyNotFound = false;
+            let anyReserved = false;
+
+            $selected.each(function() {
+                const row = $(this).closest('tr');
+                if (row.find('.badge-inuse').length > 0) anyInUse = true;
+                else allInUse = false;
+
+                if (row.find('.badge-notfound').length > 0) anyNotFound = true;
+                if (row.find('.badge-reserved').length > 0) anyReserved = true;
+            });
+
+            // Logic Rules:
+            if (allInUse) $('#btn-record-use').prop('disabled', false);
+            if (anyReserved || anyNotFound) $('#btn-in-use').prop('disabled', false);
+            if (anyReserved || anyInUse) $('#btn-not-found').prop('disabled', false);
+
+            // --- OPTION 2 FIX: Strict Release Guard ---
+            if (anyInUse) {
+                // If ANY sample is in use, block the release button entirely
+                $('#btn-available').prop('disabled', true);
+                $('#btn-available').attr('title', 'You must "Record Use" for active samples. Enter 0.0 if no volume was used.');
+            } else {
+                // Only allow release if NO in-use samples are selected
+                $('#btn-available').prop('disabled', false);
             }
-        });
+        }
+    }
+
+    // --- 2. SELECTION HANDLERS ---
+
+    $(document).on('click', '.sample-checkbox', function(e) {
+        const $checkboxes = $('.sample-checkbox').not(':disabled');
+        const isChecked = this.checked;
+
+        if (e.shiftKey && lastChecked) {
+            const start = $checkboxes.index(this);
+            const end = $checkboxes.index(lastChecked);
+            const range = $checkboxes.slice(Math.min(start, end), Math.max(start, end) + 1);
+
+            range.prop('checked', isChecked);
+            range.closest('tr').addClass('selected');
+        }
+
+        $(this).closest('tr').toggleClass('selected', isChecked);
+        lastChecked = this;
+        updateButtons();
     });
 
-    // Update selected samples in finish modal
-    const finishModal = document.getElementById('finishModal');
-    if (finishModal) {
-        finishModal.addEventListener('show.bs.modal', function() {
-            const selectedSamples = Array.from(document.querySelectorAll('input[name="sample_ids"]:checked'));
-            const selectedSamplesDiv = document.getElementById('selected-samples');
+    $("#select-all").on('click', function() {
+        const isChecked = $(this).prop('checked');
+        const $all = $('.sample-checkbox'); // Added this to get the total count easily
+        const $mine = $all.not(':disabled');
 
-            if (selectedSamples.length === 0) {
-                selectedSamplesDiv.innerHTML = '<div class="alert alert-warning">No samples selected</div>';
-            } else {
-                selectedSamplesDiv.innerHTML = `<div class="alert alert-info">
-                    ${selectedSamples.length} sample(s) selected
-                </div>`;
-            }
+        $mine.prop('checked', isChecked);
+        $mine.closest('tr').toggleClass('selected', isChecked);
 
-            // Transfer selected sample IDs to the form
-            selectedSamples.forEach(checkbox => {
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'sample_ids';
-                input.value = checkbox.value;
-                finishModal.querySelector('form').appendChild(input);
-            });
+        // Update indeterminate state
+        const total = $all.length;
+        const enabled = $mine.length;
+
+        if (enabled < total && isChecked) {
+            // If we selected everything possible, but some were disabled, show the dash
+            $(this).prop('indeterminate', true);
+        } else {
+            // CRITICAL: If we uncheck, or if every single row was enabled, remove the dash
+            $(this).prop('indeterminate', false);
+        }
+
+        updateButtons();
+    });
+
+    // --- 3. SUBMIT ACTION (BUG FIXED) ---
+    // Added 'extraData' object parameter so we can pass the volume safely
+    function submitBatch(url, extraData = {}) {
+        const $container = $('#hidden-inputs-container').empty();
+        const $checked = $('.sample-checkbox:checked');
+
+        if ($checked.length === 0) return;
+
+        $checked.each(function() {
+            $container.append(`<input type="hidden" name="sample_ids" value="${$(this).val()}">`);
         });
 
-        // Clean up when modal is hidden
-        finishModal.addEventListener('hide.bs.modal', function() {
-            const form = finishModal.querySelector('form');
-            const hiddenInputs = form.querySelectorAll('input[name="sample_ids"]');
-            hiddenInputs.forEach(input => input.remove());
-        });
+        // Append any extra data (like volume_used) AFTER emptying the container
+        for (const [key, value] of Object.entries(extraData)) {
+            $container.append(`<input type="hidden" name="${key}" value="${value}">`);
+        }
+
+        $('#batch-form').attr('action', url).submit();
     }
+
+    // --- 4. BUTTON CLICK HANDLERS ---
+
+    $('#btn-in-use').click(function() { submitBatch("{% url 'core:record_active_use' %}"); });
+
+    $('#btn-available').click(function() {
+        $('#avail-count').text($('.sample-checkbox:checked').length);
+        new bootstrap.Modal(document.getElementById('availableModal')).show();
+    });
+
+    $('#confirm-available').click(function() {
+        submitBatch("{% url 'core:release_from_export' %}");
+    });
+
+    $('#btn-not-found').click(function() {
+        $('#notfound-count').text($('.sample-checkbox:checked').length);
+        new bootstrap.Modal(document.getElementById('notFoundModal')).show();
+    });
+
+    $('#confirm-notfound').click(function() {
+        submitBatch("{% url 'core:mark_samples_not_found' %}");
+    });
+
+    // Record Use
+    $('#btn-record-use').click(function() {
+        $('#record-use-count').text($('.sample-checkbox:checked').length);
+        new bootstrap.Modal(document.getElementById('recordUseModal')).show();
+    });
+
+    $('#confirm-record-use').click(function() {
+        const volumeInput = $('#modal_volume_used').val();
+        const volume = parseFloat(volumeInput);
+
+        // The validation check from your feedback
+        if (volumeInput === "" || isNaN(volume) || volume < 0) {
+            alert('Please enter a valid volume (0 or greater).');
+
+            // This is the "extra" polish:
+            $('#modal_volume_used').focus();
+
+            return;
+        }
+
+        // Only submits if the data is actually clean
+        submitBatch("{% url 'core:mark_samples_finished' %}", { volume_used: volume });
+    });
+
+    // Initial run
+    updateButtons();
 });
-
-function confirmAction(message) {
-    const selectedSamples = document.querySelectorAll('input[name="sample_ids"]:checked');
-    if (selectedSamples.length === 0) {
-        alert('Please select at least one sample.');
-        return false;
-    }
-    return confirm(message);
-}
 </script>
 {% endblock %}

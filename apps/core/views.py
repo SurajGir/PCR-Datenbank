@@ -949,36 +949,42 @@ def mark_samples_finished(request):
 
 @login_required
 def record_active_use(request):
-    """Change status from Reserved to In Use for selected samples"""
+    """Change status to In Use (Active) - Works for Reserved or Not Found samples"""
     if request.method == 'POST':
-        sample_ids = request.POST.getlist('sample_ids')
-        for sample_id in sample_ids:
-            sample = get_object_or_404(PCRSample, id=sample_id)
-            if sample.in_use and sample.current_user == request.user:
-                # Change the status to "In Use" by adding a flag
-                sample.active_use = True
-                sample.save()
+        # 1. Get IDs and force them to be unique to avoid double-counting
+        sample_ids = list(set(request.POST.getlist('sample_ids')))
 
-                # Instead of update_or_create, get the latest log entry
-                usage_log = UsageLog.objects.filter(
-                    sample=sample,
+        # 2. Update the samples in one single database hit
+        # This returns the ACTUAL number of rows changed in the DB
+        actual_count = PCRSample.objects.filter(
+            id__in=sample_ids,
+            current_user=request.user
+        ).update(
+            active_use=True,
+            in_use=True,
+            not_found=False
+        )
+
+        # 3. Handle the logs for these specific samples
+        for s_id in sample_ids:
+            # We update the log if it exists, or create if missing
+            log_updated = UsageLog.objects.filter(
+                sample_id=s_id,
+                user=request.user,
+                return_date__isnull=True
+            ).update(
+                active_use_date=datetime.now(),
+                not_found=False
+            )
+
+            if not log_updated:
+                UsageLog.objects.create(
+                    sample_id=s_id,
                     user=request.user,
-                    return_date__isnull=True
-                ).order_by('-checkout_date').first()
+                    active_use_date=datetime.now()
+                )
 
-                if usage_log:
-                    usage_log.active_use_date = datetime.now()
-                    usage_log.save()
-                else:
-                    # Create a new log if none exists
-                    UsageLog.objects.create(
-                        sample=sample,
-                        user=request.user,
-                        active_use_date=datetime.now()
-                    )
-
-        messages.success(request, f"{len(sample_ids)} samples marked as in use.")
-        return redirect('core:exported_list')
+        messages.success(request, f"{actual_count} samples are now actively In Use.")
 
     return redirect('core:exported_list')
 
@@ -1076,7 +1082,6 @@ def mark_samples_not_found(request):
                     # Mark as not found
                     sample.not_found = True
                     sample.in_use = False
-                    sample.current_user = None
                     sample.save()
                     count += 1
 
@@ -1215,6 +1220,28 @@ def export_samples(request):
             return redirect('core:inventory')
 
     return redirect('core:inventory')
+
+
+@login_required
+@require_POST
+def release_from_export(request):
+    """
+    Removes samples from the user's private export list.
+    Preserves the 'Not Found' status so it remains visible on the main inventory.
+    """
+    sample_ids = request.POST.getlist('sample_ids')
+    samples = PCRSample.objects.filter(id__in=sample_ids)
+
+    for sample in samples:
+        sample.current_user = None
+        sample.in_use = False
+        sample.active_use = False
+        # IMPORTANT: We do NOT set sample.not_found = False here.
+        # If it was Red (Not Found), it stays Red on the main page.
+        sample.save()
+
+    messages.success(request, f"{samples.count()} samples released to the main inventory.")
+    return redirect('core:exported_list')
 
 @login_required
 def download_template(request):
@@ -1491,13 +1518,13 @@ def get_import_errors(request):
 
 @login_required
 def exported_list(request):
-    """View for displaying list of exported/in-use samples"""
-    # Get samples that are either in use or marked as not found
+    """View for displaying list of exported/in-use samples assigned to the current user"""
+    # FIX: Only show samples belonging to the logged-in user
     samples = PCRSample.objects.filter(
-        Q(in_use=True) | Q(not_found=True)
+        current_user=request.user
     ).order_by('mikrogen_internal_number')
 
-    # Add status information for each sample
+    # Add status information for each sample (Same as before)
     for sample in samples:
         if sample.not_found:
             sample.status = 'Not Found'

@@ -256,6 +256,37 @@
             closeErrorModal();
         }
     });
+
+   // Global Enter Key Handler for Modals (With Visual Feedback)
+    document.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+            const openModal = document.querySelector('.modal.show');
+            if (openModal) {
+                event.preventDefault();
+
+                let targetBtn = openModal.querySelector('.modal-footer button:not([data-bs-dismiss="modal"])');
+                if (!targetBtn) {
+                    targetBtn = openModal.querySelector('.modal-footer button[data-bs-dismiss="modal"]');
+                }
+
+                if (targetBtn && !targetBtn.disabled) {
+                    // 1. Visual physical "press" effect
+                    targetBtn.style.transform = 'scale(0.95)';
+                    targetBtn.style.transition = 'transform 0.1s ease';
+                    targetBtn.classList.add('active');
+
+                    // 2. Wait exactly 150ms so the human eye registers the click, then execute
+                    setTimeout(() => {
+                        targetBtn.click();
+
+                        // Reset the button just in case the page doesn't instantly reload
+                        targetBtn.style.transform = 'none';
+                        targetBtn.classList.remove('active');
+                    }, 150);
+                }
+            }
+        }
+    });
     </script>
     {% endblock %}
 </body>

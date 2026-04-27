@@ -163,6 +163,8 @@ class UsageLog(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     volume_used = models.FloatField(default=0)
     checkout_date = models.DateTimeField(auto_now_add=True)
+    active_use_date = models.DateTimeField(null=True, blank=True)
+    not_found = models.BooleanField(default=False)
     return_date = models.DateTimeField(null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
 

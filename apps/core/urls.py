@@ -28,4 +28,5 @@ urlpatterns = [
     path('samples/make-available/', views.mark_samples_available, name='mark_samples_available'),
     path('create-target/', views.create_target, name='create_target'),
     path('get-import-errors/', views.get_import_errors, name='get_import_errors'),
+    path('samples/release-export/', views.release_from_export, name='release_from_export'),
 ]
