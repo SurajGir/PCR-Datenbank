@@ -10,7 +10,6 @@ urlpatterns = [
     path('sample/<str:sample_id>/delete/', views.delete_sample, name='delete_sample'),
     path('add/', views.add_sample, name='add_sample'),
     path('settings/', views.settings, name='settings'),
-    path('settings/delete-option/', views.delete_option, name='delete_option'),
     path('mark-finished/', views.mark_samples_finished, name='mark_finished'),
     path('export/', views.export_samples, name='export_samples'),
     path('import/', views.import_samples, name='import'),

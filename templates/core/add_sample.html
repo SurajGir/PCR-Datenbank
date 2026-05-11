@@ -301,13 +301,22 @@
                         <!-- 6. User Section -->
                         <div class="card mb-4">
                             <div class="card-header bg-secondary text-white">
-                                <h6 class="mb-0">6. User</h6>
+                                <h6 class="mb-0">5. Volume</h6>
                             </div>
                             <div class="card-body">
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
-                                        <p>Added by: <strong>{{ request.user.username }}</strong></p>
-                                        <input type="hidden" name="added_by" value="{{ request.user.id }}">
+                                        <label for="sample_volume" class="form-label">Initial Sample Volume *</label>
+                                        <div class="input-group">
+                                            <input type="number" step="any" min="0" class="form-control" id="sample_volume" name="sample_volume" required>
+
+                                            <select class="form-select" id="volume_unit" name="volume_unit" style="max-width: 120px;" required>
+                                                <option value="uL">µL</option>
+                                                <option value="mL" selected>mL</option>
+                                                <option value="L">L</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-text">Enter the volume and select the unit exactly as it is stored.</div>
                                     </div>
                                 </div>
                             </div>

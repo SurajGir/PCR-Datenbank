@@ -10,7 +10,7 @@ SECRET_KEY = 'django-insecure-i5cv*^e95b+cigc+2b_pw+ij5&v$$r*zk&5&skmf1q3!)h^u44
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 # Application definition
 INSTALLED_APPS = [
@@ -102,12 +102,15 @@ LOGIN_REDIRECT_URL = 'core:dashboard'  # Redirect after successful login
 LOGOUT_REDIRECT_URL = '/accounts/login/'  # Redirect after logout
 
 # Email settings
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = 'smtp.your-company.com'  # Your SMTP server
-EMAIL_PORT = 587  # Typical ports: 587 (TLS) or 465 (SSL)
-EMAIL_USE_TLS = True
-EMAIL_HOST_USER = 'pcrdatabase@your-company.com'
-EMAIL_HOST_PASSWORD = 'your-smtp-password'
-DEFAULT_FROM_EMAIL = 'PCR Database <pcrdatabase@your-company.com>'
+#EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+#EMAIL_HOST = 'smtp.your-company.com'  # Your SMTP server
+#EMAIL_PORT = 587  # Typical ports: 587 (TLS) or 465 (SSL)
+#EMAIL_USE_TLS = True
+#EMAIL_HOST_USER = 'pcrdatabase@your-company.com'
+#EMAIL_HOST_PASSWORD = 'your-smtp-password'
+#DEFAULT_FROM_EMAIL = 'PCR Database <pcrdatabase@your-company.com>'
+
+# Add this for testing:
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 print("DATABASE ENGINE:", DATABASES['default']['ENGINE'], file=sys.stderr)

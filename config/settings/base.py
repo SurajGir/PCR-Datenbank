@@ -13,7 +13,7 @@ SECRET_KEY = 'django-insecure-i5cv*^e95b+cigc+2b_pw+ij5&v$$r*zk&5&skmf1q3!)h^u44
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['localhost', '127.0.0.1', '10.1.3.172', 'PC0105', 'PC0105.local']
 
 
 # Application definition
@@ -41,6 +41,7 @@ INSTALLED_APPS = DJANGO_APPS + THIRD_PARTY_APPS + LOCAL_APPS
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',

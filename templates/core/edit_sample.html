@@ -40,12 +40,42 @@
                                     </div>
                                 </div>
                                 <div class="row">
-                                    <div class="col-md-4 mb-3">
-                                        <label for="storage_place" class="form-label">Storage Place</label>
-                                        <select class="form-select" id="storage_place" name="storage_place">
-                                            <option value="">Select Storage Place</option>
-                                            {% for place in storage_places %}
-                                                <option value="{{ place.id }}" {% if sample.storage_place and place.id == sample.storage_place.id %}selected{% endif %}>{{ place.name }}</option>
+                                    <div class="col-md-3 mb-3">
+                                        <label for="room" class="form-label">Room</label>
+                                        <select class="form-select" id="room" name="room">
+                                            <option value="">Select Room</option>
+                                            {% for room in rooms %}
+                                                <option value="{{ room.id }}" {% if selected_room and room.id == selected_room.id %}selected{% endif %}>{{ room.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+
+                                    <div class="col-md-3 mb-3">
+                                        <label for="freezer" class="form-label">Freezer</label>
+                                        <select class="form-select" id="freezer" name="freezer" {% if not selected_room %}disabled{% endif %}>
+                                            <option value="">Select Freezer</option>
+                                            {% for freezer in freezers %}
+                                                <option value="{{ freezer.id }}" {% if selected_freezer and freezer.id == selected_freezer.id %}selected{% endif %}>{{ freezer.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+
+                                    <div class="col-md-3 mb-3">
+                                        <label for="drawer" class="form-label">Drawer</label>
+                                        <select class="form-select" id="drawer" name="drawer" {% if not selected_freezer %}disabled{% endif %}>
+                                            <option value="">Select Drawer</option>
+                                            {% for drawer in drawers %}
+                                                <option value="{{ drawer.id }}" {% if selected_drawer and drawer.id == selected_drawer.id %}selected{% endif %}>{{ drawer.name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+
+                                    <div class="col-md-3 mb-3">
+                                        <label for="box" class="form-label">Box</label>
+                                        <select class="form-select" id="box" name="box" {% if not selected_drawer %}disabled{% endif %}>
+                                            <option value="">Select Box</option>
+                                            {% for box in boxes %}
+                                                <option value="{{ box.id }}" {% if selected_box and box.id == selected_box.id %}selected{% endif %}>{{ box.name }}</option>
                                             {% endfor %}
                                         </select>
                                     </div>
@@ -262,12 +292,24 @@
                             <div class="card-body">
                                 <div class="row">
                                     <div class="col-md-6 mb-3">
-                                        <label for="sample_volume" class="form-label">Sample Volume (ml) *</label>
-                                        <input type="number" step="0.1" class="form-control" id="sample_volume" name="sample_volume" value="{{ sample.sample_volume }}" required>
+                                        <label for="sample_volume" class="form-label">Initial Sample Volume *</label>
+                                        <div class="input-group">
+                                            <input type="number" step="any" min="0" class="form-control" id="sample_volume" name="sample_volume" value="{{ sample.sample_volume|stringformat:'f' }}" required>
+
+                                            <select class="form-select" id="volume_unit" name="volume_unit" style="max-width: 120px;" required>
+                                                <option value="uL" {% if sample.volume_unit == 'uL' %}selected{% endif %}>µL</option>
+                                                <option value="mL" {% if sample.volume_unit == 'mL' or not sample.volume_unit %}selected{% endif %}>mL</option>
+                                                <option value="L" {% if sample.volume_unit == 'L' %}selected{% endif %}>L</option>
+                                            </select>
+                                        </div>
                                     </div>
+
                                     <div class="col-md-6 mb-3">
-                                        <label for="sample_volume_remaining" class="form-label">Remaining Volume (ml)</label>
-                                        <input type="number" step="0.1" class="form-control" value="{{ sample.sample_volume_remaining }}" readonly>
+                                        <label for="sample_volume_remaining" class="form-label">Remaining Volume</label>
+                                        <div class="input-group">
+                                            <input type="number" step="any" class="form-control" value="{{ sample.sample_volume_remaining|stringformat:'f' }}" readonly>
+                                            <span class="input-group-text bg-light text-muted">{{ sample.get_volume_unit_display|default:"mL" }}</span>
+                                        </div>
                                         <small class="form-text text-muted">Remaining volume is calculated automatically based on usage.</small>
                                     </div>
                                 </div>

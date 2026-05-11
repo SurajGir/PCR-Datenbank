@@ -171,15 +171,23 @@
                                <label class="form-label small mb-1">CT Value: <span id="ct-range-display">{{ filters.min_ct|default:"0" }} - {{ filters.max_ct|default:"50" }}</span></label>
                                <div id="ct-slider" class="mx-2"></div>
                                <input type="hidden" name="min_ct" id="min-ct" value="{{ filters.min_ct|default:"0" }}">
-                               <input type="hidden" name="max_ct" id="max-ct" value="{{ filters.max_ct|default:"50" }}">
+                               <input type="hidden" name="max_ct" id="max_ct" value="{{ filters.max_ct|default:"50" }}">
                            </div>
 
                            <div class="col-md-3">
-                               <label class="form-label small mb-1">Volume (ml): <span id="volume-range-display">{{ filters.min_volume|default:"0" }} - {{ filters.max_volume|default:"1000" }}</span></label>
-                               <div id="volume-slider" class="mx-2"></div>
-                               <input type="hidden" name="min_volume" id="min-volume" value="{{ filters.min_volume|default:"0" }}">
-                               <input type="hidden" name="max_volume" id="max-volume" value="{{ filters.max_volume|default:"1000" }}">
-                           </div>
+                                <label class="form-label small mb-1">Remaining Volume Range</label>
+                                <div class="input-group input-group-sm">
+                                    <input type="number" step="any" min="0" class="form-control" name="min_volume" placeholder="Min" value="{{ request.GET.min_volume }}">
+                                    <span class="input-group-text border-0 bg-transparent px-1">-</span>
+                                    <input type="number" step="any" min="0" class="form-control" name="max_volume" placeholder="Max" value="{{ request.GET.max_volume }}">
+
+                                    <select class="form-select" name="filter_unit" style="max-width: 70px; padding-left: 5px; padding-right: 20px;">
+                                        <option value="uL" {% if request.GET.filter_unit == 'uL' %}selected{% endif %}>µL</option>
+                                        <option value="mL" {% if request.GET.filter_unit == 'mL' or not request.GET.filter_unit %}selected{% endif %}>mL</option>
+                                        <option value="L" {% if request.GET.filter_unit == 'L' %}selected{% endif %}>L</option>
+                                    </select>
+                                </div>
+                            </div>
 
                            <div class="col-md-2">
                                <div class="d-flex gap-2">
@@ -191,11 +199,9 @@
                                    </a>
                                </div>
                            </div>
-                       </div>
-
-                       <div class="row mt-3">
+                       </div> <div class="row mt-3">
                            <div class="col-12">
-                               <button type="button" class="btn btn-outline-secondary" id="toggle-advanced-filters">
+                               <button type="button" class="btn btn-outline-secondary btn-sm" id="toggle-advanced-filters">
                                    <i class="bi bi-plus-circle me-1"></i> Advanced Filters
                                </button>
                            </div>
@@ -228,7 +234,6 @@
            </div>
        </div>
     </div>
-
     <!-- Table section -->
     <div class="row">
         <div class="col-12">
@@ -315,7 +320,7 @@
                                                     <div class="progress-bar {% if sample.volume_percentage < 25 %}bg-danger{% elif sample.volume_percentage < 50 %}bg-warning{% else %}bg-success{% endif %}"
                                                     style="width: {{ sample.volume_percentage }}%"></div>
                                                 </div>
-                                                <span>{{ sample.sample_volume_remaining|floatformat:1 }} ml</span>
+                                                <span>{{ sample.sample_volume_remaining|floatformat:1 }} {{ sample.volume_unit }}</span>
                                             </div>
                                         {% else %}
                                             <span class="text-danger">Empty</span>
@@ -615,20 +620,8 @@
             }
         });
 
-        $("#volume-slider").slider({
-            range: true,
-            min: 0, max: 1000,
-            values: [{{ filters.min_volume|default:0 }}, {{ filters.max_volume|default:1000 }}],
-            slide: function(event, ui) {
-                $("#volume-range-display").text(ui.values[0] + " - " + ui.values[1]);
-                $("#min-volume").val(ui.values[0]);
-                $("#max-volume").val(ui.values[1]);
-            }
-        });
-
         // Initialize displays
         $("#ct-range-display").text($("#ct-slider").slider("values", 0) + " - " + $("#ct-slider").slider("values", 1));
-        $("#volume-range-display").text($("#volume-slider").slider("values", 0) + " - " + $("#volume-slider").slider("values", 1));
 
         $("#toggle-advanced-filters").click(function() {
             $("#advanced-filters").slideToggle(300, function() {
@@ -646,9 +639,6 @@
         $("#filter-form").on("submit", function() {
             if ($("#min-ct").val() == "0" && $("#max-ct").val() == "50") {
                 $("#min-ct, #max-ct").removeAttr("name");
-            }
-            if ($("#min-volume").val() == "0" && $("#max-volume").val() == "1000") {
-                $("#min-volume, #max-volume").removeAttr("name");
             }
             return true;
         });

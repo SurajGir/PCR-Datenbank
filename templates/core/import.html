@@ -13,13 +13,15 @@
                 </div>
                 <div class="card-body">
                     <div class="alert alert-warning">
-                        <h5>Instructions</h5>
+                        <h5><i class="bi bi-info-circle me-2"></i>Instructions</h5>
                         <p>Upload an Excel file (.xlsx or .xls) with the following columns:</p>
                         <ul>
                             <li><strong>Required:</strong> Mikrogen Internal Number, Provider, Target, Sample Type, Sample Volume</li>
                             <li><strong>Optional:</strong> Provider Number, PCR Kit (Mikrogen), PCR Kit (External), CT Value (Mikrogen), CT Value (External)</li>
                         </ul>
-                        <p>If providers, targets, sample types, or PCR kits don't exist in the system, they will be created automatically.</p>
+                        <hr>
+                        <h6><strong>⚠️ Important Note on Volume:</strong></h6>
+                        <p class="mb-0">Please include the unit directly in the "Sample Volume" column (e.g., type <code>1.5 mL</code>, <code>500 uL</code>, or <code>2 L</code>). If no unit is provided, the system will default to mL.</p>
                     </div>
 
                     <form method="POST" enctype="multipart/form-data" id="importForm">

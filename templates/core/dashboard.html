@@ -110,27 +110,40 @@
   </div>
 
   <div class="row">
-    <!-- Recent Activity -->
     <div class="col-md-6 mb-4">
       <div class="card h-100">
         <div class="card-header bg-primary text-white">
           <h5 class="card-title mb-0">Recent Activity</h5>
         </div>
         <div class="card-body p-0">
-          <div class="list-group list-group-flush">
+          <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
             {% for log in recent_logs %}
             <div class="list-group-item">
-              <div class="d-flex w-100 justify-content-between">
-                <h6 class="mb-1">{{ log.user.username }} {{ log.action_type }}</h6>
-                <small>{{ log.timestamp|timesince }} ago</small>
+              <div class="d-flex w-100 justify-content-between align-items-center mb-1">
+                <h6 class="mb-0 text-primary">
+                    <i class="bi bi-person-circle me-1"></i> {{ log.user.username }}
+                </h6>
+                <small class="text-muted">{{ log.timestamp|timesince }} ago</small>
               </div>
-              <p class="mb-1">Sample: {{ log.sample.mikrogen_internal_number }}</p>
+
+              <div class="d-flex justify-content-between align-items-center mt-2">
+                  <span class="badge bg-light text-dark border">Sample: {{ log.sample.mikrogen_internal_number }}</span>
+                  <span class="badge {% if log.action_type == 'checked out' %}bg-warning text-dark{% else %}bg-success{% endif %}">
+                      {{ log.action_type|title }}
+                  </span>
+              </div>
+
               {% if log.volume_used %}
-              <small>Volume used: {{ log.volume_used }} ml</small>
+              <div class="mt-2 small text-muted">
+                  <i class="bi bi-droplet-half text-info me-1"></i> Volume used: <strong>{{ log.volume_used|floatformat:1 }} {{ log.volume_unit }}</strong>
+              </div>
               {% endif %}
             </div>
             {% empty %}
-            <div class="list-group-item">No recent activity</div>
+            <div class="list-group-item text-center text-muted py-4">
+                <i class="bi bi-clock-history fs-3 d-block mb-2"></i>
+                No recent activity
+            </div>
             {% endfor %}
           </div>
         </div>
@@ -139,33 +152,87 @@
 
     <div class="col-md-6 mb-4">
       <div class="card h-100">
-        <div class="card-header bg-primary text-white">
-          <h5 class="card-title mb-0">Top Users</h5>
+        <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
+          <h5 class="card-title mb-0">My Active Samples</h5>
+          <a href="{% url 'core:exported_list' %}" class="btn btn-sm btn-light py-0">View All</a>
         </div>
         <div class="card-body p-0">
-          <div class="list-group list-group-flush">
-            {% for user in top_users %}
-            <div class="list-group-item">
+          <div class="list-group list-group-flush" style="max-height: 400px; overflow-y: auto;">
+            {% for sample in my_active_samples %}
+            <a href="{% url 'core:sample_detail' sample.mikrogen_internal_number %}" class="list-group-item list-group-item-action">
               <div class="d-flex w-100 justify-content-between align-items-center">
                 <div>
-                  <h6 class="mb-0">{{ user.username }}</h6>
-                  <small>{{ user.email }}</small>
+                  <h6 class="mb-1">{{ sample.mikrogen_internal_number }}</h6>
+                  <small class="text-muted">{{ sample.target.name }}</small>
                 </div>
-                <span class="badge bg-primary rounded-pill">{{ user.usage_count }} samples</span>
+                <span class="badge {% if sample.active_use %}bg-warning text-dark{% else %}bg-info{% endif %} rounded-pill">
+                  {% if sample.active_use %}In Use{% else %}Reserved{% endif %}
+                </span>
               </div>
-            </div>
+            </a>
             {% empty %}
-            <div class="list-group-item">No user activity yet</div>
+            <div class="list-group-item text-center text-muted py-4">
+                <i class="bi bi-clipboard-check fs-3 d-block mb-2"></i>
+                You have no active samples right now.
+            </div>
             {% endfor %}
           </div>
         </div>
       </div>
     </div>
   </div>
+
+  {% if low_volume_count > 0 %}
+  <div class="row">
+    <div class="col-12 mb-4">
+      <div class="card shadow-sm border-0">
+        <div class="card-header text-white d-flex justify-content-between align-items-center" style="background: linear-gradient(to right, #e74c3c, #c0392b);">
+          <h5 class="card-title mb-0"><i class="bi bi-exclamation-triangle me-2"></i> Low Volume Alerts</h5>
+          <span class="badge bg-white" style="color: #c0392b;">{{ low_volume_count }} Total</span>
+        </div>
+        <div class="card-body p-0">
+          <div class="table-responsive">
+            <table class="table table-hover mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>ID</th>
+                  <th>Target</th>
+                  <th>Location</th>
+                  <th>Remaining</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for sample in low_volume_list %}
+                <tr>
+                  <td><a href="{% url 'core:sample_detail' sample.mikrogen_internal_number %}" class="text-decoration-none fw-bold" style="color: #c0392b;">{{ sample.mikrogen_internal_number }}</a></td>
+                  <td>{{ sample.target.name }}</td>
+                  <td><small class="text-muted">{{ sample.storage_place.name|default:"Not assigned" }}</small></td>
+                  <td>
+                    <strong>{{ sample.sample_volume_remaining|floatformat:1 }} {{ sample.volume_unit }}</strong>
+                    <span class="text-muted small"> / {{ sample.sample_volume|floatformat:1 }} {{ sample.volume_unit }}</span>
+                  </td>
+                  <td>
+                    <div class="progress" style="height: 10px; width: 80px; margin-top: 6px;">
+                      <div class="progress-bar" role="progressbar" style="width: {{ sample.percentage|floatformat:0 }}%; background: linear-gradient(to right, #e74c3c, #c0392b);"></div>
+                    </div>
+                    <small style="color: #c0392b;">{{ sample.percentage|floatformat:0 }}% left</small>
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 </div>
 {% endblock %}
 
 {% block extra_js %}
+
   {{ block.super }}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>

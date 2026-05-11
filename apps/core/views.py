@@ -1,20 +1,20 @@
-from django.shortcuts import render, redirect, get_object_or_404
-from django.contrib.auth.decorators import login_required, user_passes_test
-from django.http import HttpResponse, JsonResponse
-from django.db.models import Q, Count, F, ExpressionWrapper, FloatField
+import json
+import os
+import re
+import tempfile
+from datetime import datetime
+from typing import Union
+
+import pandas as pd
 from django.contrib import messages
+from django.contrib.auth.decorators import login_required, user_passes_test
 from django.contrib.auth.models import User
 from django.core.files.storage import FileSystemStorage
+from django.db.models import Q, Count, F, ExpressionWrapper, FloatField
+from django.http import HttpResponse, JsonResponse
+from django.shortcuts import render, redirect, get_object_or_404
+from django.urls import reverse
 from django.views.decorators.http import require_POST
-from django.db import models
-import os
-import json
-import tempfile
-import pandas as pd
-from datetime import datetime
-from io import BytesIO
-from pathlib import Path
-from typing import Union, Optional
 
 from .models import (
     PCRSample, Provider, Target, SampleType, PCRKit,
@@ -30,61 +30,58 @@ def dashboard(request):
     in_use_count = PCRSample.objects.filter(in_use=True).count()
     available_count = total_samples - in_use_count
 
-    # Low volume samples (less than 25% remaining)
-    low_volume_samples = PCRSample.objects.annotate(
+    # --- NEW: Get BOTH the count and the actual low volume samples ---
+    low_volume_qs = PCRSample.objects.filter(sample_volume__gt=0).annotate(
         percentage=ExpressionWrapper(
-            F('sample_volume_remaining') * 100 / F('sample_volume'),
+            F('sample_volume_remaining') * 100.0 / F('sample_volume'),
             output_field=FloatField()
         )
-    ).filter(percentage__lt=25).count()
+    ).filter(percentage__lt=25).order_by('percentage') # Show the emptiest ones first
 
-    # Sample type distribution
+    low_volume_count = low_volume_qs.count()
+    low_volume_list = low_volume_qs[:10] # Grab the top 10 for the table
+
+    # --- NEW: Get "My Active Samples" ---
+    my_active_samples = PCRSample.objects.filter(
+        current_user=request.user,
+        in_use=True
+    ).order_by('mikrogen_internal_number')
+
+    # Sample type distribution (Unchanged)
     sample_type_data = list(PCRSample.objects.values('sample_type__name')
                             .annotate(count=Count('id'))
                             .order_by('-count')[:10])
-
     sample_type_labels = json.dumps([item['sample_type__name'] for item in sample_type_data])
     sample_type_counts = [item['count'] for item in sample_type_data]
 
-    # Target distribution
+    # Target distribution (Unchanged)
     target_data = list(PCRSample.objects.values('target__name')
                        .annotate(count=Count('id'))
                        .order_by('-count')[:10])
-
     target_labels = json.dumps([item['target__name'] for item in target_data])
     target_counts = [item['count'] for item in target_data]
 
-    # Recent activity
+    # Recent activity (Unchanged)
     recent_logs = UsageLog.objects.select_related('sample', 'user').order_by('-checkout_date')[:10]
-
-    # Prepare activity logs
     for log in recent_logs:
-        if log.return_date:
-            log.action_type = "returned"
-        else:
-            log.action_type = "checked out"
+        log.action_type = "returned" if log.return_date else "checked out"
         log.timestamp = log.return_date if log.return_date else log.checkout_date
-
-    # Top users
-    top_users = User.objects.annotate(
-        usage_count=Count('usagelog')
-    ).order_by('-usage_count')[:5]
 
     context = {
         'total_samples': total_samples,
         'in_use_count': in_use_count,
         'available_count': available_count,
-        'low_volume_count': low_volume_samples,
+        'low_volume_count': low_volume_count,
+        'low_volume_list': low_volume_list,
+        'my_active_samples': my_active_samples,
         'sample_type_labels': sample_type_labels,
         'sample_type_data': sample_type_counts,
         'target_labels': target_labels,
         'target_data': target_counts,
         'recent_logs': recent_logs,
-        'top_users': top_users,
     }
 
     return render(request, 'core/dashboard.html', context)
-
 
 @login_required
 def inventory(request):
@@ -98,8 +95,11 @@ def inventory(request):
     sample_type_id = request.GET.get('sample_type', '')
     min_ct = request.GET.get('min_ct', '0')
     max_ct = request.GET.get('max_ct', '50')
-    min_volume = request.GET.get('min_volume', '0')
-    max_volume = request.GET.get('max_volume', '1000')
+
+    # --- NEW: Empty defaults for Volume inputs + get the unit ---
+    min_volume = request.GET.get('min_volume', '')
+    max_volume = request.GET.get('max_volume', '')
+    filter_unit = request.GET.get('filter_unit', 'mL')
 
     # Add advanced filters
     positive_target_id = request.GET.get('positive_target', '')
@@ -148,7 +148,6 @@ def inventory(request):
         if max_ct and max_ct != '50':
             mikrogen_filter &= Q(mikrogen_ct_value__lte=float(max_ct))
 
-        # Only apply mikrogen filter if there's a valid condition
         if mikrogen_filter != Q():
             ct_filters |= mikrogen_filter
 
@@ -159,24 +158,45 @@ def inventory(request):
         if max_ct and max_ct != '50':
             external_filter &= Q(external_ct_value__lte=float(max_ct))
 
-        # Only apply external filter if there's a valid condition
         if external_filter != Q():
             ct_filters |= external_filter
 
-        # Apply combined filter only if we have conditions to filter on
         if ct_filters != Q():
             samples = samples.filter(ct_filters)
 
-    # Apply volume filters only if they differ from defaults
-    if min_volume and min_volume != '0' or max_volume and max_volume != '1000':
-        volume_filter = Q()
-        if min_volume and min_volume != '0':
-            volume_filter &= Q(sample_volume_remaining__gte=float(min_volume))
-        if max_volume and max_volume != '1000':
-            volume_filter &= Q(sample_volume_remaining__lte=float(max_volume))
+    # --- NEW: Unit-Aware Volume Filters ---
+    if min_volume or max_volume:
+        try:
+            # If left blank, min becomes 0 and max becomes infinity
+            min_v = float(min_volume) if min_volume else 0.0
+            max_v = float(max_volume) if max_volume else float('inf')
 
-        if volume_filter != Q():
-            samples = samples.filter(volume_filter)
+            if filter_unit == 'mL':
+                samples = samples.filter(
+                    Q(volume_unit='mL', sample_volume_remaining__gte=min_v, sample_volume_remaining__lte=max_v) |
+                    Q(volume_unit='uL', sample_volume_remaining__gte=min_v * 1000,
+                      sample_volume_remaining__lte=max_v * 1000) |
+                    Q(volume_unit='L', sample_volume_remaining__gte=min_v / 1000,
+                      sample_volume_remaining__lte=max_v / 1000)
+                )
+            elif filter_unit == 'uL':
+                samples = samples.filter(
+                    Q(volume_unit='uL', sample_volume_remaining__gte=min_v, sample_volume_remaining__lte=max_v) |
+                    Q(volume_unit='mL', sample_volume_remaining__gte=min_v / 1000,
+                      sample_volume_remaining__lte=max_v / 1000) |
+                    Q(volume_unit='L', sample_volume_remaining__gte=min_v / 1000000,
+                      sample_volume_remaining__lte=max_v / 1000000)
+                )
+            elif filter_unit == 'L':
+                samples = samples.filter(
+                    Q(volume_unit='L', sample_volume_remaining__gte=min_v, sample_volume_remaining__lte=max_v) |
+                    Q(volume_unit='mL', sample_volume_remaining__gte=min_v * 1000,
+                      sample_volume_remaining__lte=max_v * 1000) |
+                    Q(volume_unit='uL', sample_volume_remaining__gte=min_v * 1000000,
+                      sample_volume_remaining__lte=max_v * 1000000)
+                )
+        except ValueError:
+            pass  # Ignore if text was typed by accident
 
     # Add volume percentage for each sample
     for sample in samples:
@@ -189,7 +209,7 @@ def inventory(request):
     print(
         f"Filters applied: target={target_id}, sample_type={sample_type_id}, "
         f"positive={positive_target_id}, negative={negative_target_id}, "
-        f"CT={min_ct}-{max_ct}, volume={min_volume}-{max_volume}")
+        f"CT={min_ct}-{max_ct}, volume={min_volume}-{max_volume} {filter_unit}")
     print(f"Results: {samples.count()} samples found")
 
     context = {
@@ -203,6 +223,7 @@ def inventory(request):
             'max_ct': max_ct,
             'min_volume': min_volume,
             'max_volume': max_volume,
+            'filter_unit': filter_unit,  # --- NEW: Pass unit back to HTML form ---
             'positive_target': positive_target_id,
             'negative_target': negative_target_id
         },
@@ -270,68 +291,16 @@ def manage_storage(request):
 
     if request.method == 'POST':
         action = request.POST.get('action')
-        option_type = request.POST.get('option_type')  # Get option_type from POST data
+        option_type = request.POST.get('option_type')
         item_id = request.POST.get('item_id')
 
-        if action == 'delete':
-            if not item_id:
-                messages.error(request, "No item ID provided for deletion.")
-                return redirect('core:manage_storage')
+        # Make sure section is defined for the redirects
+        section = request.GET.get('section', 'storage')
 
-            try:
-                storage_place = get_object_or_404(StoragePlace, id=item_id)
-
-                # Check if the storage place contains samples or other storage places
-                if PCRSample.objects.filter(storage_place=storage_place).exists():
-                    messages.error(request, f"Cannot delete {storage_place.name} because it contains samples.")
-                elif StoragePlace.objects.filter(parent=storage_place).exists():
-                    messages.error(request, f"Cannot delete {storage_place.name} because it contains other storage locations.")
-                else:
-                    name = storage_place.name
-                    storage_place.delete()
-                    messages.success(request, f"{name} deleted successfully.")
-            except Exception as e:
-                messages.error(request, f"Cannot delete storage place: {str(e)}")
-
-        elif action == 'move':
-            item_id = request.POST.get('item_id')
-            new_parent_id = request.POST.get('new_parent_id')
-
-            item = get_object_or_404(StoragePlace, id=item_id)
-
-            # Prevent circular references
-            if new_parent_id:
-                new_parent = get_object_or_404(StoragePlace, id=new_parent_id)
-
-                # Check if new_parent is a descendant of item
-                current = new_parent
-                while current:
-                    if current.id == item.id:
-                        messages.error(request, "Cannot move a storage location into its own descendant.")
-                        return redirect('core:manage_storage')
-                    current = current.parent
-
-                # Check if the new parent is of the correct type
-                if item.type == 'freezer' and new_parent.type != 'room':
-                    messages.error(request, "Freezers can only be placed in rooms.")
-                elif item.type == 'drawer' and new_parent.type != 'freezer':
-                    messages.error(request, "Drawers can only be placed in freezers.")
-                elif item.type == 'box' and new_parent.type != 'drawer':
-                    messages.error(request, "Boxes can only be placed in drawers.")
-                else:
-                    item.parent = new_parent
-                    item.save()
-                    messages.success(request, f"{item.name} moved successfully.")
-            else:
-                # Moving to top level (only rooms should be at top level)
-                if item.type != 'room':
-                    messages.error(request, "Only rooms can be at the top level.")
-                else:
-                    item.parent = None
-                    item.save()
-                    messages.success(request, f"{item.name} moved to top level.")
-
-        elif action == 'add':
+        # ---------------------------------------------------------
+        # 1. ADD ACTION
+        # ---------------------------------------------------------
+        if action == 'add':
             name = request.POST.get('name')
             type_value = request.POST.get('type')
             parent_id = request.POST.get('parent_id')
@@ -356,15 +325,63 @@ def manage_storage(request):
                     StoragePlace.objects.create(name=name, type=type_value, parent=parent)
                     messages.success(request, f"New {type_value} '{name}' added successfully.")
 
+            return redirect(f'/settings/?section={section}')
+
+        # ---------------------------------------------------------
+        # 2. MOVE ACTION
+        # ---------------------------------------------------------
+        elif action == 'move':
+            new_parent_id = request.POST.get('new_parent_id')
+            item = get_object_or_404(StoragePlace, id=item_id)
+
+            # Prevent circular references
+            if new_parent_id:
+                new_parent = get_object_or_404(StoragePlace, id=new_parent_id)
+
+                current = new_parent
+                while current:
+                    if current.id == item.id:
+                        messages.error(request, "Cannot move a storage location into its own descendant.")
+                        return redirect(f'/settings/?section={section}')
+                    current = current.parent
+
+                # Check if the new parent is of the correct type
+                if item.type == 'room':
+                    messages.error(request,
+                                   "Rooms cannot be placed inside other locations. They must be at the top level.")
+                elif item.type == 'freezer' and new_parent.type != 'room':
+                    messages.error(request, "Freezers can only be placed in rooms.")
+                elif item.type == 'drawer' and new_parent.type != 'freezer':
+                    messages.error(request, "Drawers can only be placed in freezers.")
+                elif item.type == 'box' and new_parent.type != 'drawer':
+                    messages.error(request, "Boxes can only be placed in drawers.")
+                else:
+                    item.parent = new_parent
+                    item.save()
+                    messages.success(request, f"{item.name} moved successfully.")
+            else:
+                # Moving to top level (only rooms should be at top level)
+                if item.type != 'room':
+                    messages.error(request, "Only rooms can be at the top level.")
+                else:
+                    item.parent = None
+                    item.save()
+                    messages.success(request, f"{item.name} moved to top level.")
+
+            return redirect(f'/settings/?section={section}')
+
+        # ---------------------------------------------------------
+        # 3. DELETE ACTION (MERGED & FIXED)
+        # ---------------------------------------------------------
         elif action == 'delete':
             option_id = request.POST.get('option_id')
-            item_id = request.POST.get('item_id')
 
-            if not item_id and not option_id:  # Check for either item_id or option_id
+            if not item_id and not option_id:
                 messages.error(request, "No ID provided for deletion.")
                 return redirect(f'/settings/?section={section}')
 
             try:
+                # Delete Settings Options
                 if option_type == 'target':
                     target = get_object_or_404(Target, id=option_id)
                     name = target.name
@@ -395,20 +412,26 @@ def manage_storage(request):
                     name = kit.name
                     kit.delete()
                     messages.success(request, f"PCR Kit '{name}' deleted successfully.")
-                elif option_type == 'storage_place':
-                    storage_place = get_object_or_404(StoragePlace, id=item_id)
 
-                    # Check if the storage place contains samples
+                # Delete Storage Places (Fallback if no explicit option_type was sent)
+                elif not option_type or option_type == 'storage_place':
+                    target_id = item_id if item_id else option_id
+                    storage_place = get_object_or_404(StoragePlace, id=target_id)
+
                     if PCRSample.objects.filter(storage_place=storage_place).exists():
                         messages.error(request, f"Cannot delete {storage_place.name} because it contains samples.")
                     elif StoragePlace.objects.filter(parent=storage_place).exists():
-                        messages.error(request, f"Cannot delete {storage_place.name} because it contains other storage locations.")
+                        messages.error(request,
+                                       f"Cannot delete {storage_place.name} because it contains other storage locations.")
                     else:
                         name = storage_place.name
                         storage_place.delete()
                         messages.success(request, f"{name} deleted successfully.")
             except Exception as e:
-                messages.error(request, f"Cannot delete this {option_type}: {str(e)}")
+                error_target = option_type if option_type else "storage place"
+                messages.error(request, f"Cannot delete {error_target}: {str(e)}")
+
+            return redirect(f'/settings/?section={section}')
 
     # Get all storage places organized hierarchically
     rooms = StoragePlace.objects.filter(type='room').order_by('name')
@@ -473,6 +496,7 @@ def add_sample(request):
         target_id = request.POST.get('target')
         sample_type_id = request.POST.get('sample_type')
         sample_volume = request.POST.get('sample_volume')
+        volume_unit = request.POST.get('volume_unit', 'mL')
 
         # Create new sample with required fields
         sample = PCRSample(
@@ -482,6 +506,7 @@ def add_sample(request):
             sample_type_id=sample_type_id,
             sample_volume=float(sample_volume),
             sample_volume_remaining=float(sample_volume),
+            volume_unit=volume_unit,
             added_by=request.user
         )
 
@@ -546,7 +571,6 @@ def add_sample(request):
 
     return render(request, 'core/add_sample.html', context)
 
-
 @require_POST
 @login_required
 def create_target(request):
@@ -609,13 +633,30 @@ def edit_sample(request, sample_id):
         sample.positive_for = ','.join(positive_target_names)
         sample.negative_for = ','.join(negative_target_names)
 
-        # Volume needs special handling to track history
+        # Volume needs special handling to track history and unit changes
         new_volume = float(request.POST.get('sample_volume', 0))
-        if new_volume != sample.sample_volume:
-            # If total volume increases, also increase the remaining volume
+        new_unit = request.POST.get('volume_unit', sample.volume_unit)  # Fallback to current unit
+
+        # Case 1: The user changed the Unit (e.g., fixing a typo from mL to uL)
+        if new_unit != sample.volume_unit:
+            # Figure out what percentage of the sample is currently left
+            if sample.sample_volume > 0:
+                percentage_left = sample.sample_volume_remaining / sample.sample_volume
+            else:
+                percentage_left = 1.0
+
+            # Update the sample with the new unit and volume
+            sample.volume_unit = new_unit
+            sample.sample_volume = new_volume
+            # Apply that same percentage to the new volume
+            sample.sample_volume_remaining = new_volume * percentage_left
+
+        # Case 2: The user only changed the Number, unit stayed the same
+        elif new_volume != sample.sample_volume:
             volume_diff = new_volume - sample.sample_volume
             sample.sample_volume = new_volume
             sample.sample_volume_remaining += volume_diff
+
             if sample.sample_volume_remaining < 0:
                 sample.sample_volume_remaining = 0
 
@@ -726,77 +767,226 @@ def delete_sample(request, sample_id):
 
     return redirect('core:sample_detail', sample_id=sample_id)
 
-
 @login_required
 def settings(request):
     """Settings page for managing dropdown options"""
     # Get the section from the URL parameter or POST data
-    section = request.GET.get('section', request.POST.get('section', 'targets'))  # Get from either GET or POST, default to targets
+    section = request.GET.get('section', request.POST.get('section', 'targets'))
 
     if request.method == 'POST':
         action = request.POST.get('action')
         option_type = request.POST.get('option_type')
-        option_id = request.POST.get('option_id')
         item_id = request.POST.get('item_id')
+        option_id = request.POST.get('option_id')
 
+        # --------------------------------------------------------
+        # 1. DELETE LOGIC
+        # --------------------------------------------------------
         if action == 'delete':
             try:
                 if not (item_id or option_id):
                     messages.error(request, "No ID provided for deletion.")
-                    return redirect('core:settings') if not section else redirect(f'/settings/?section={section}')
+                    return redirect(f"{reverse('core:settings')}?section={section}")
 
                 delete_id = option_id if option_id else item_id
                 success_message = None
 
                 if option_type == 'target':
                     item = get_object_or_404(Target, id=delete_id)
-                    name = item.name
-                    item.delete()
-                    success_message = f"Target '{name}' deleted successfully."
-                elif option_type == 'sample_type':
-                    item = get_object_or_404(SampleType, id=delete_id)
-                    name = item.name
-                    item.delete()
-                    success_message = f"Sample type '{name}' deleted successfully."
-                elif option_type == 'provider':
-                    item = get_object_or_404(Provider, id=delete_id)
-                    name = item.name
-                    item.delete()
-                    success_message = f"Provider '{name}' deleted successfully."
-                elif option_type == 'extractor':
-                    item = get_object_or_404(Extractor, id=delete_id)
-                    name = item.name
-                    item.delete()
-                    success_message = f"Extractor '{name}' deleted successfully."
-                elif option_type == 'cycler':
-                    item = get_object_or_404(Cycler, id=delete_id)
-                    name = item.name
-                    item.delete()
-                    success_message = f"Cycler '{name}' deleted successfully."
-                elif option_type == 'pcr_kit':
-                    item = get_object_or_404(PCRKit, id=delete_id)
-                    name = item.name
-                    item.delete()
-                    success_message = f"PCR Kit '{name}' deleted successfully."
-                elif option_type == 'storage_place':
-                    item = get_object_or_404(StoragePlace, id=delete_id)
-
-                    if PCRSample.objects.filter(storage_place=item).exists():
-                        messages.error(request, f"Cannot delete {item.name} because it contains samples.")
-                    elif StoragePlace.objects.filter(parent=item).exists():
-                        messages.error(request, f"Cannot delete {item.name} because it contains other storage locations.")
+                    if PCRSample.objects.filter(target=item).exists():
+                        messages.error(request, f"Cannot delete '{item.name}': it is linked to existing samples.")
                     else:
                         name = item.name
                         item.delete()
-                        success_message = f"{name} deleted successfully."
+                        success_message = f"Target '{name}' deleted successfully."
+
+                elif option_type == 'sample_type':
+                    item = get_object_or_404(SampleType, id=delete_id)
+                    if PCRSample.objects.filter(sample_type=item).exists():
+                        messages.error(request, f"Cannot delete '{item.name}': it is linked to existing samples.")
+                    else:
+                        name = item.name
+                        item.delete()
+                        success_message = f"Sample type '{name}' deleted successfully."
+
+                elif option_type == 'provider':
+                    item = get_object_or_404(Provider, id=delete_id)
+                    if PCRSample.objects.filter(provider=item).exists():
+                        messages.error(request, f"Cannot delete '{item.name}': it is linked to existing samples.")
+                    else:
+                        name = item.name
+                        item.delete()
+                        success_message = f"Provider '{name}' deleted successfully."
+
+                elif option_type == 'extractor':
+                    item = get_object_or_404(Extractor, id=delete_id)
+                    if PCRSample.objects.filter(extractor=item).exists():
+                        messages.error(request, f"Cannot delete '{item.name}': it is linked to existing samples.")
+                    else:
+                        name = item.name
+                        item.delete()
+                        success_message = f"Extractor '{name}' deleted successfully."
+
+                elif option_type == 'cycler':
+                    item = get_object_or_404(Cycler, id=delete_id)
+                    if PCRSample.objects.filter(cycler=item).exists():
+                        messages.error(request, f"Cannot delete '{item.name}': it is linked to existing samples.")
+                    else:
+                        name = item.name
+                        item.delete()
+                        success_message = f"Cycler '{name}' deleted successfully."
+
+                elif option_type == 'pcr_kit':
+                    item = get_object_or_404(PCRKit, id=delete_id)
+                    if PCRSample.objects.filter(mikrogen_pcr_kit=item).exists() or PCRSample.objects.filter(
+                            external_pcr_kit=item).exists():
+                        messages.error(request, f"Cannot delete '{item.name}': it is used in sample records.")
+                    else:
+                        name = item.name
+                        item.delete()
+                        success_message = f"PCR Kit '{name}' deleted successfully."
+
+                elif option_type == 'storage_place':
+                    item = get_object_or_404(StoragePlace, id=delete_id)
+
+                    # 1. Gather this item and ALL its nested children (Freezers, Drawers, Boxes)
+                    def get_all_storage_ids(place):
+                        ids = [place.id]
+                        for child in StoragePlace.objects.filter(parent=place):
+                            ids.extend(get_all_storage_ids(child))
+                        return ids
+
+                    all_ids = get_all_storage_ids(item)
+
+                    # 2. Check if ANY of these locations currently hold a physical sample
+                    if PCRSample.objects.filter(storage_place_id__in=all_ids).exists():
+                        messages.error(request,
+                                       f"Cannot delete '{item.name}': It (or a sub-location inside it) currently contains samples. Please move the samples first.")
+                    else:
+                        name = item.name
+                        # 3. Safely delete the entire tree at once
+                        StoragePlace.objects.filter(id__in=all_ids).delete()
+                        success_message = f"'{name}' and all its empty sub-locations were deleted successfully."
 
                 if success_message:
                     messages.success(request, success_message)
 
             except Exception as e:
-                messages.error(request, f"Cannot delete this {option_type}: {str(e)}")
+                messages.error(request, f"An unexpected error occurred during deletion: {str(e)}")
 
-    # Prepare context with section-specific data
+        # --------------------------------------------------------
+        # 2. ADD LOGIC
+        # --------------------------------------------------------
+        elif action == 'add':
+            name = request.POST.get('name')
+
+            if not name or name.strip() == '':
+                messages.error(request, f"Please enter a valid name for the new {option_type.replace('_', ' ')}.")
+            else:
+                try:
+                    if option_type == 'target':
+                        Target.objects.create(name=name)
+                    elif option_type == 'sample_type':
+                        SampleType.objects.create(name=name)
+                    elif option_type == 'provider':
+                        Provider.objects.create(name=name)
+                    elif option_type == 'extractor':
+                        Extractor.objects.create(name=name)
+                    elif option_type == 'cycler':
+                        Cycler.objects.create(name=name)
+                    elif option_type == 'pcr_kit':
+                        kit_type = request.POST.get('kit_type', 'external')
+                        PCRKit.objects.create(name=name, type=kit_type)
+                    elif option_type == 'storage_place':
+                        storage_type = request.POST.get('type')  # Ensure this matches your form input name
+                        parent_id = request.POST.get('parent_id')
+                        parent_obj = StoragePlace.objects.get(id=parent_id) if parent_id else None
+                        StoragePlace.objects.create(name=name, type=storage_type, parent=parent_obj)
+
+                    messages.success(request, f"Successfully added '{name}'!")
+                except Exception as e:
+                    messages.error(request, f"Error adding new item: {str(e)}")
+
+        # --------------------------------------------------------
+        # 3. EDIT LOGIC
+        # --------------------------------------------------------
+        elif action == 'edit':
+            new_name = request.POST.get('name')
+
+            if not option_id or not new_name or new_name.strip() == '':
+                messages.error(request, "Invalid data provided for editing.")
+            else:
+                try:
+                    if option_type == 'target':
+                        item = get_object_or_404(Target, id=option_id)
+                        item.name = new_name
+                        item.save()
+                    elif option_type == 'sample_type':
+                        item = get_object_or_404(SampleType, id=option_id)
+                        item.name = new_name
+                        item.save()
+                    elif option_type == 'provider':
+                        item = get_object_or_404(Provider, id=option_id)
+                        item.name = new_name
+                        item.save()
+                    elif option_type == 'extractor':
+                        item = get_object_or_404(Extractor, id=option_id)
+                        item.name = new_name
+                        item.save()
+                    elif option_type == 'cycler':
+                        item = get_object_or_404(Cycler, id=option_id)
+                        item.name = new_name
+                        item.save()
+                    elif option_type == 'pcr_kit':
+                        item = get_object_or_404(PCRKit, id=option_id)
+                        item.name = new_name
+                        kit_type = request.POST.get('kit_type')
+                        if kit_type:
+                            item.type = kit_type
+                        item.save()
+                    elif option_type == 'storage_place':
+                        item = get_object_or_404(StoragePlace, id=option_id)
+                        item.name = new_name
+                        storage_type = request.POST.get('storage_type')
+                        if storage_type:
+                            item.type = storage_type
+                        parent_id = request.POST.get('parent_id')
+                        if parent_id:
+                            item.parent = StoragePlace.objects.get(id=parent_id)
+                        item.save()
+
+                    messages.success(request, f"Successfully updated to '{new_name}'!")
+                except Exception as e:
+                    messages.error(request, f"Error updating item: {str(e)}")
+
+        # --------------------------------------------------------
+        # 4. MOVE LOGIC (For Storage Places)
+        # --------------------------------------------------------
+        elif action == 'move':
+            new_parent_id = request.POST.get('new_parent_id')
+
+            if option_type == 'storage_place' and item_id:
+                try:
+                    item = get_object_or_404(StoragePlace, id=item_id)
+
+                    if new_parent_id:
+                        new_parent = get_object_or_404(StoragePlace, id=new_parent_id)
+                        item.parent = new_parent
+                    else:
+                        item.parent = None  # Moved to top level (Room)
+
+                    item.save()
+                    messages.success(request, f"Successfully moved '{item.name}'.")
+                except Exception as e:
+                    messages.error(request, f"Error moving location: {str(e)}")
+
+        # --------------------------------------------------------
+        # REDIRECT AT THE END OF THE POST BLOCK
+        # --------------------------------------------------------
+        return redirect(f"{reverse('core:settings')}?section={section}")
+    # --------------------------------------------------------
+    # CONTEXT PREPARATION (GET REQUEST)
+    # --------------------------------------------------------
     context = {
         'section': section,
         'providers': Provider.objects.all(),
@@ -862,43 +1052,6 @@ def settings(request):
     return render(request, 'core/settings.html', context)
 
 @login_required
-def delete_option(request):
-    """Delete a dropdown option"""
-    if request.method == 'POST':
-        option_type = request.POST.get('option_type')
-        option_id = request.POST.get('option_id')
-
-        try:
-            if option_type == 'provider':
-                Provider.objects.get(id=option_id).delete()
-                messages.success(request, "Provider deleted successfully.")
-            elif option_type == 'target':
-                Target.objects.get(id=option_id).delete()
-                messages.success(request, "Target deleted successfully.")
-            elif option_type == 'sample_type':
-                SampleType.objects.get(id=option_id).delete()
-                messages.success(request, "Sample type deleted successfully.")
-            elif option_type == 'storage_place':
-                StoragePlace.objects.get(id=option_id).delete()
-                messages.success(request, "Storage place deleted successfully.")
-            elif option_type == 'extractor':
-                Extractor.objects.get(id=option_id).delete()
-                messages.success(request, "Extractor deleted successfully.")
-            elif option_type == 'cycler':
-                Cycler.objects.get(id=option_id).delete()
-                messages.success(request, "Cycler deleted successfully.")
-            elif option_type == 'pcr_kit':
-                PCRKit.objects.get(id=option_id).delete()
-                messages.success(request, "PCR kit deleted successfully.")
-        except Exception as e:
-            messages.error(request, f"Error deleting option: {str(e)}")
-
-        return redirect('core:settings')
-
-    return redirect('core:settings')
-
-
-@login_required
 def mark_in_use(request):
     if request.method == 'POST':
         sample_ids = request.POST.getlist('sample_ids')
@@ -916,35 +1069,63 @@ def mark_in_use(request):
 
     return redirect('core:exported_list')
 
+
 @login_required
 def mark_samples_finished(request):
-    """Mark selected samples as finished using"""
+    """Mark samples as finished and deduct volume unit-safely"""
     if request.method == 'POST':
         sample_ids = request.POST.getlist('sample_ids')
-        volume_used = request.POST.get('volume_used', 0)
+        volume_used_str = request.POST.get('volume_used', 0)
+        deduction_unit = request.POST.get('deduction_unit', 'mL')  # Grab the dropdown value
 
         try:
-            volume_used = float(volume_used)
+            volume_used = float(volume_used_str)
         except ValueError:
             volume_used = 0
 
         for sample_id in sample_ids:
             sample = get_object_or_404(PCRSample, id=sample_id)
             if sample.in_use and sample.current_user == request.user:
+
+                # --- UNIT CONVERSION MATH ---
+                # Convert the "used volume" into the sample's native unit
+                converted_volume_used = volume_used
+
+                if deduction_unit != sample.volume_unit:
+                    if deduction_unit == 'mL' and sample.volume_unit == 'uL':
+                        converted_volume_used = volume_used * 1000
+                    elif deduction_unit == 'mL' and sample.volume_unit == 'L':
+                        converted_volume_used = volume_used / 1000
+                    elif deduction_unit == 'uL' and sample.volume_unit == 'mL':
+                        converted_volume_used = volume_used / 1000
+                    elif deduction_unit == 'uL' and sample.volume_unit == 'L':
+                        converted_volume_used = volume_used / 1000000
+                    elif deduction_unit == 'L' and sample.volume_unit == 'mL':
+                        converted_volume_used = volume_used * 1000
+                    elif deduction_unit == 'L' and sample.volume_unit == 'uL':
+                        converted_volume_used = volume_used * 1000000
+
                 # Update the latest usage log
-                usage_log = sample.usage_logs.filter(user=request.user, return_date__isnull=True).first()
+                usage_log = UsageLog.objects.filter(sample=sample, user=request.user, return_date__isnull=True).first()
                 if usage_log:
+                    # Save the explicit unit in the log so the dashboard knows what was used
                     usage_log.volume_used = volume_used
+                    usage_log.volume_unit = deduction_unit
                     usage_log.return_date = datetime.now()
                     usage_log.save()
 
-                # Mark sample as finished
-                sample.mark_finished(volume_used)
+                # Deduct volume using the converted math and release the sample
+                sample.sample_volume_remaining = max(0, sample.sample_volume_remaining - converted_volume_used)
+                sample.in_use = False
+                sample.active_use = False
+                sample.current_user = None
+                sample.not_found = False
+                sample.save()
 
-        messages.success(request, f"{len(sample_ids)} samples marked as finished.")
-        return redirect('core:inventory')
+        messages.success(request, f"{len(sample_ids)} samples processed. Deducted {volume_used} {deduction_unit}.")
+        return redirect('core:exported_list')
 
-    return redirect('core:inventory')
+    return redirect('core:exported_list')
 
 
 @login_required
@@ -1002,71 +1183,19 @@ def mark_samples_available(request):
             sample.not_found = False
             sample.save()
 
+            # --- NEW: Close any open logs for this sample ---
+            UsageLog.objects.filter(
+                sample=sample,
+                return_date__isnull=True
+            ).update(
+                return_date=datetime.now(),
+                notes="Marked available (Forced release)"
+            )
+
         sample_text = "sample" if len(sample_ids) == 1 else "samples"
         messages.success(request, f"{len(sample_ids)} {sample_text} made available.")
 
     return redirect('core:inventory')
-
-@login_required
-def mark_in_use(request):
-    """Mark selected samples as in use"""
-    if request.method == 'POST':
-        sample_ids = request.POST.getlist('sample_ids')
-        for sample_id in sample_ids:
-            sample = get_object_or_404(PCRSample, id=sample_id)
-            sample.in_use = True
-            sample.current_user = request.user
-            sample.not_found = False  # Reset not found status if it was set
-            sample.save()
-
-            # Create usage log if doesn't exist
-            if not UsageLog.objects.filter(sample=sample, user=request.user, return_date__isnull=True).exists():
-                UsageLog.objects.create(
-                    sample=sample,
-                    user=request.user
-                )
-
-        messages.success(request, f"{len(sample_ids)} samples marked as in use.")
-        return redirect('core:exported_list')
-
-    return redirect('core:exported_list')
-
-
-@login_required
-def mark_samples_finished(request):
-    """Mark samples as finished and deduct volume"""
-    if request.method == 'POST':
-        sample_ids = request.POST.getlist('sample_ids')
-        volume_used = request.POST.get('volume_used', 0)
-
-        try:
-            volume_used = float(volume_used)
-        except ValueError:
-            volume_used = 0
-
-        for sample_id in sample_ids:
-            sample = get_object_or_404(PCRSample, id=sample_id)
-            if sample.in_use and sample.current_user == request.user:
-                # Update the latest usage log
-                usage_log = UsageLog.objects.filter(sample=sample, user=request.user, return_date__isnull=True).first()
-                if usage_log:
-                    usage_log.volume_used = volume_used
-                    usage_log.return_date = datetime.now()
-                    usage_log.save()
-
-                # Deduct volume and release the sample
-                sample.sample_volume_remaining = max(0, sample.sample_volume_remaining - volume_used)
-                sample.in_use = False
-                sample.active_use = False
-                sample.current_user = None
-                sample.not_found = False
-                sample.save()
-
-        messages.success(request, f"{len(sample_ids)} samples processed with {volume_used} ml used.")
-        return redirect('core:exported_list')
-
-    return redirect('core:exported_list')
-
 
 @login_required
 def mark_samples_not_found(request):
@@ -1136,9 +1265,10 @@ def safe_convert_value(value: str, to_type: str = 'float') -> Union[float, int, 
     except (ValueError, TypeError):
         return value
 
+
 @login_required
 def export_samples(request):
-    """Export selected samples to Excel"""
+    """Export selected samples to Excel with the new 4-column storage format"""
     if request.method == 'POST':
         sample_ids = request.POST.getlist('sample_ids')
 
@@ -1163,6 +1293,27 @@ def export_samples(request):
                     user=request.user
                 )
 
+            # --- NEW LOGIC: EXTRACT HIERARCHY FOR EXPORT ---
+            room, freezer, drawer, box = '', '', '', ''
+            sp = sample.storage_place
+
+            # We work backwards from the saved location up to the Room
+            if sp:
+                # This logic assumes: Box -> Drawer -> Freezer -> Room
+                # It safely checks if a parent exists at each step
+                curr = sp
+                path = []
+                while curr is not None:
+                    path.insert(0, curr.name)
+                    curr = curr.parent
+
+                # Assign based on depth found (Room is top, Box is bottom)
+                if len(path) >= 1: room = path[0]
+                if len(path) >= 2: freezer = path[1]
+                if len(path) >= 3: drawer = path[2]
+                if len(path) >= 4: box = path[3]
+            # ----------------------------------------------
+
             # Add sample data to export list
             export_data.append({
                 'Mikrogen Internal Number': sample.mikrogen_internal_number,
@@ -1172,7 +1323,14 @@ def export_samples(request):
                 'Positive For': sample.positive_for or '',
                 'Negative For': sample.negative_for or '',
                 'Sample Type': sample.sample_type.name if sample.sample_type else '',
-                'Storage Place': sample.storage_place.name if sample.storage_place else '',
+
+                # --- MATCHING THE NEW 4-COLUMN FORMAT ---
+                'Storage: Room': room,
+                'Storage: Freezer': freezer,
+                'Storage: Drawer': drawer,
+                'Storage: Box': box,
+                # ----------------------------------------
+
                 'Date of Draw': sample.date_of_draw.strftime('%Y-%m-%d') if sample.date_of_draw else '',
                 'Age': str(sample.age) if sample.age is not None else '',
                 'Gender': sample.get_gender_display() if sample.gender else '',
@@ -1184,16 +1342,14 @@ def export_samples(request):
                 'PCR Kit (External)': sample.external_pcr_kit.name if sample.external_pcr_kit else '',
                 'CT Value (Mikrogen)': str(sample.mikrogen_ct_value) if sample.mikrogen_ct_value is not None else '',
                 'CT Value (External)': str(sample.external_ct_value) if sample.external_ct_value is not None else '',
-                'Sample Volume': str(sample.sample_volume),
-                'Sample Volume Remaining': str(sample.sample_volume_remaining),
+                'Sample Volume': f"{sample.sample_volume} {sample.volume_unit}",
+                'Sample Volume Remaining': f"{sample.sample_volume_remaining} {sample.volume_unit}",
                 'Notes': sample.notes or ''
             })
 
-        # Create Excel file using a temporary file
+        # Create Excel file
         current_date = datetime.now().strftime("%Y%m%d")
         filename = f"PCR_Datenbank_{current_date}.xlsx"
-
-        # Create Excel file
         temp_path = os.path.join(tempfile.gettempdir(), filename)
         df = pd.DataFrame(export_data)
 
@@ -1201,7 +1357,6 @@ def export_samples(request):
             with pd.ExcelWriter(temp_path, engine='openpyxl') as writer:
                 df.to_excel(writer, index=False)
 
-            # Read the file and create response
             with open(temp_path, 'rb') as f:
                 response = HttpResponse(
                     f.read(),
@@ -1209,7 +1364,6 @@ def export_samples(request):
                 )
                 response['Content-Disposition'] = f'attachment; filename="{filename}"'
 
-            # Clean up
             os.remove(temp_path)
             return response
 
@@ -1220,7 +1374,6 @@ def export_samples(request):
             return redirect('core:inventory')
 
     return redirect('core:inventory')
-
 
 @login_required
 @require_POST
@@ -1240,13 +1393,23 @@ def release_from_export(request):
         # If it was Red (Not Found), it stays Red on the main page.
         sample.save()
 
+    UsageLog.objects.filter(
+        sample__in=samples,
+        user=request.user,
+        return_date__isnull=True
+    ).update(
+        return_date=datetime.now(),
+        notes="Released without using volume"
+    )
+
     messages.success(request, f"{samples.count()} samples released to the main inventory.")
     return redirect('core:exported_list')
+
 
 @login_required
 def download_template(request):
     """Download Excel template for importing samples"""
-    # Create DataFrame with column headers
+    # Create DataFrame with the updated 4-column storage headers
     columns = [
         'Mikrogen Internal Number',
         'Provider Number',
@@ -1255,7 +1418,14 @@ def download_template(request):
         'Positive For',
         'Negative For',
         'Sample Type',
-        'Storage Place',
+
+        # --- NEW STORAGE COLUMNS ---
+        'Storage: Room',
+        'Storage: Freezer',
+        'Storage: Drawer',
+        'Storage: Box',
+        # ---------------------------
+
         'Date of Draw',
         'Age',
         'Gender',
@@ -1301,212 +1471,243 @@ def download_template(request):
 
 @login_required
 def import_samples(request):
-    """Import samples from Excel file"""
-    # Initialize variables at the start
-    errors = []
-    samples_created = 0
     temp_dir = tempfile.gettempdir()
-    temp_file_path = None
-    current_row_idx = 0  # For error messages
 
-    if request.method == 'POST' and (request.FILES.get('excel_file') or 'confirm_targets' in request.POST):
-        excel_file = request.FILES.get('excel_file')
-
-        # Check if file is an Excel file
-        if excel_file and not excel_file.name.endswith(('.xls', '.xlsx')):
-            messages.error(request, "Uploaded file is not an Excel file.")
-            return redirect('core:import')
-
-        try:
-            # Store the file temporarily if we need to process it again
-            if 'excel_file' in request.FILES:
-                temp_file = request.FILES['excel_file']
-                fs = FileSystemStorage(location=temp_dir)
-                filename = fs.save(f"excel_import_{request.user.id}.xlsx", temp_file)
-                temp_file_path = fs.path(filename)
-            else:
-                temp_file_path = request.POST.get('temp_file_path')
-
-            # Initialize row index for error messages
-            current_row_idx = 0
-
-            # Read the Excel file
-            df = pd.read_excel(temp_file_path if 'temp_file_path' in request.POST else excel_file)
-            print(f"DEBUG: Successfully read Excel file with {len(df)} rows")
-            print(f"DEBUG: Columns found: {list(df.columns)}")
-
-            # Check for missing columns right after reading the DataFrame
-            missing_columns = [col for col in ['Mikrogen Internal Number', 'Provider', 'Target', 'Sample Type', 'Sample Volume'] if col not in df.columns]
-            if missing_columns:
-                messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
+    if request.method == 'POST':
+        # ==========================================
+        # PHASE 1: THE PRE-SCAN (Initial File Upload)
+        # ==========================================
+        if request.FILES.get('excel_file'):
+            excel_file = request.FILES['excel_file']
+            if not excel_file.name.endswith(('.xls', '.xlsx')):
+                messages.error(request, "Uploaded file is not an Excel file.")
                 return redirect('core:import')
 
-            # Validate and clean data
-            for index, row in df.iterrows():
-                current_row_idx = index + 2  # +2 because index is 0-based and we have a header row
+            fs = FileSystemStorage(location=temp_dir)
+            filename = fs.save(f"excel_import_{request.user.id}.xlsx", excel_file)
+            temp_file_path = fs.path(filename)
 
-                # Required fields
-                mikrogen_internal_number = row.get('Mikrogen Internal Number')
-                provider_number = row.get('Provider Number')
-                target_name = row.get('Target')
-                sample_type_name = row.get('Sample Type')
-                storage_place_name = row.get('Storage Place')
-                date_of_draw = row.get('Date of Draw')
+            try:
+                df = pd.read_excel(temp_file_path)
 
-                if not mikrogen_internal_number:
-                    errors.append(f"Row {current_row_idx}: Mikrogen Internal Number is required.")
-                    continue
+                # Check Mandatory Columns (Storage columns are optional so they aren't here)
+                required_cols = [
+                    'Mikrogen Internal Number', 'Provider Number', 'Provider',
+                    'Target', 'Sample Type', 'Sample Volume'
+                ]
+                missing_columns = [col for col in required_cols if col not in df.columns]
+                if missing_columns:
+                    os.remove(temp_file_path)
+                    messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
+                    return redirect('core:import')
 
-                # Check for duplicates
-                if PCRSample.objects.filter(mikrogen_internal_number=mikrogen_internal_number).exists():
-                    errors.append(f"Row {current_row_idx}: Sample with Mikrogen Internal Number '{mikrogen_internal_number}' already exists.")
-                    continue
-
-                # Create or get provider
-                provider, _ = Provider.objects.get_or_create(
-                    name=provider_number
-                )
-
-                # Create or get target
-                target, _ = Target.objects.get_or_create(
-                    name=target_name
-                )
-
-                # Create or get sample type
-                sample_type, _ = SampleType.objects.get_or_create(
-                    name=sample_type_name
-                )
-
-                # Create or get storage place
-                storage_place = None
-                if storage_place_name:
-                    storage_place, _ = StoragePlace.objects.get_or_create(
-                        name=storage_place_name,
-                        defaults={'type': 'room'}  # Default type, can be updated later
-                    )
-
-                # Get sample volume (mandatory)
-                try:
-                    volume_str = str(row.get('Sample Volume', '')).strip().lower()
-                    volume_str = volume_str.encode('ascii', 'ignore').decode('ascii')
-                    volume_str = volume_str.replace('ml', '').replace('μl', '').replace('µl', '').replace('ul', '').strip()
-                    sample_volume = float(volume_str)
-                except (ValueError, AttributeError):
-                    errors.append(f"Row {current_row_idx}: Invalid sample volume format.")
-                    continue
-
-                # Parse optional date_of_draw
-                date_of_draw = None
-                if pd.notna(row.get('Date of Draw')):
-                    try:
-                        date_val = row.get('Date of Draw')
-                        date_of_draw = pd.to_datetime(date_val).date()
-                    except:
-                        pass
-
-                # Create sample
-                sample = PCRSample(
-                    mikrogen_internal_number=str(mikrogen_internal_number),
-                    provider=provider,
-                    target=target,
-                    sample_type=sample_type,
-                    storage_place=storage_place,
-                    sample_volume=sample_volume,
-                    sample_volume_remaining=sample_volume,
-                    added_by=request.user
-                )
-
-                # Set dates on sample object
-                sample.date_of_draw = date_of_draw
-
-                # Handle extraction_date
-                if pd.notna(row.get('Extraction Date')):
-                    try:
-                        ext_val = row.get('Extraction Date')
-                        sample.extraction_date = pd.to_datetime(ext_val).date()
-                    except:
-                        pass
-
-                # Handle optional fields
-                optional_fields = {
-                    'age': row.get('Age'),
-                    'gender': row.get('Gender'),
-                    'country_of_origin': row.get('Country of Origin'),
-                    'extractor': row.get('Extractor'),
-                    'cycler': row.get('Cycler'),
-                    'mikrogen_pcr_kit': row.get('PCR Kit (Mikrogen)'),
-                    'external_pcr_kit': row.get('PCR Kit (External)'),
-                    'mikrogen_ct_value': row.get('CT Value (Mikrogen)'),
-                    'external_ct_value': row.get('CT Value (External)'),
-                    'notes': row.get('Notes'),
+                # Scan for missing settings
+                missing_data = {
+                    'providers': set(), 'targets': set(), 'sample_types': set(),
+                    'mk_kits': set(), 'ex_kits': set()
                 }
 
-                for field, value in optional_fields.items():
-                    if value is not None and (
-                            isinstance(value, str) and value.strip() or isinstance(value, (int, float))):
+                for _, row in df.iterrows():
+                    p_name = str(row.get('Provider', '')).strip()
+                    if p_name and p_name.lower() != 'nan' and not Provider.objects.filter(name=p_name).exists():
+                        missing_data['providers'].add(p_name)
+
+                    t_name = str(row.get('Target', '')).strip()
+                    if t_name and t_name.lower() != 'nan' and not Target.objects.filter(name=t_name).exists():
+                        missing_data['targets'].add(t_name)
+
+                    s_name = str(row.get('Sample Type', '')).strip()
+                    if s_name and s_name.lower() != 'nan' and not SampleType.objects.filter(name=s_name).exists():
+                        missing_data['sample_types'].add(s_name)
+
+                    mk_name = str(row.get('PCR Kit (Mikrogen)', '')).strip()
+                    if mk_name and mk_name.lower() != 'nan' and not PCRKit.objects.filter(name=mk_name,
+                                                                                          type='mikrogen').exists():
+                        missing_data['mk_kits'].add(mk_name)
+
+                    ex_name = str(row.get('PCR Kit (External)', '')).strip()
+                    if ex_name and ex_name.lower() != 'nan' and not PCRKit.objects.filter(name=ex_name,
+                                                                                          type='external').exists():
+                        missing_data['ex_kits'].add(ex_name)
+
+                has_missing = any(len(v) > 0 for v in missing_data.values())
+
+                if has_missing:
+                    return render(request, 'core/import.html', {
+                        'missing_data': missing_data,
+                        'temp_file_path': temp_file_path,
+                        'show_modal': True
+                    })
+                else:
+                    request.POST = request.POST.copy()
+                    request.POST['confirm_import'] = 'true'
+                    request.POST['temp_file_path'] = temp_file_path
+
+            except Exception as e:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                messages.error(request, f"Error reading file: {str(e)}")
+                return redirect('core:import')
+
+        # ==========================================
+        # PHASE 2: THE FINAL IMPORT (After Confirmation)
+        # ==========================================
+        if 'confirm_import' in request.POST:
+            temp_file_path = request.POST.get('temp_file_path')
+            if not temp_file_path or not os.path.exists(temp_file_path):
+                messages.error(request, "Import session expired. Please upload the file again.")
+                return redirect('core:import')
+
+            errors = []
+            samples_created = 0
+
+            try:
+                df = pd.read_excel(temp_file_path)
+
+                for index, row in df.iterrows():
+                    current_row_idx = index + 2
+
+                    mikrogen_id = str(row.get('Mikrogen Internal Number', '')).strip()
+                    if mikrogen_id.lower() == 'nan' or not mikrogen_id:
+                        errors.append(f"Row {current_row_idx}: ID is missing.")
+                        continue
+                    if PCRSample.objects.filter(mikrogen_internal_number=mikrogen_id).exists():
+                        errors.append(f"Row {current_row_idx}: ID '{mikrogen_id}' already exists.")
+                        continue
+
+                    # Auto-Create approved settings
+                    provider, _ = Provider.objects.get_or_create(name=str(row.get('Provider', '')).strip())
+                    target, _ = Target.objects.get_or_create(name=str(row.get('Target', '')).strip())
+                    sample_type, _ = SampleType.objects.get_or_create(name=str(row.get('Sample Type', '')).strip())
+
+                    mk_kit, ex_kit = None, None
+                    mk_name = str(row.get('PCR Kit (Mikrogen)', '')).strip()
+                    if mk_name and mk_name.lower() != 'nan':
+                        mk_kit, _ = PCRKit.objects.get_or_create(name=mk_name, type='mikrogen')
+
+                    ex_name = str(row.get('PCR Kit (External)', '')).strip()
+                    if ex_name and ex_name.lower() != 'nan':
+                        ex_kit, _ = PCRKit.objects.get_or_create(name=ex_name, type='external')
+
+                    # Parse Volume
+                    vol_raw = str(row.get('Sample Volume', '')).strip().lower()
+                    volume_unit = 'uL' if 'ul' in vol_raw or 'µl' in vol_raw else 'mL'
+                    try:
+                        numeric_vol = float(re.sub(r'[^\d.]', '', vol_raw))
+                    except ValueError:
+                        errors.append(f"Row {current_row_idx}: Invalid Volume format.")
+                        continue
+
+                    # ==========================================
+                    # NEW LOGIC: THE 4-COLUMN STORAGE MAPPER
+                    # ==========================================
+                    storage_place = None
+                    room_name = str(row.get('Storage: Room', '')).strip()
+                    freezer_name = str(row.get('Storage: Freezer', '')).strip()
+                    drawer_name = str(row.get('Storage: Drawer', '')).strip()
+                    box_name = str(row.get('Storage: Box', '')).strip()
+
+                    # Clean up 'nan' from empty Excel cells
+                    room_name = room_name if room_name.lower() != 'nan' else ''
+                    freezer_name = freezer_name if freezer_name.lower() != 'nan' else ''
+                    drawer_name = drawer_name if drawer_name.lower() != 'nan' else ''
+                    box_name = box_name if box_name.lower() != 'nan' else ''
+
+                    # Search progressively based on how much data they provided
+                    if box_name:
+                        storage_place = StoragePlace.objects.filter(
+                            name=box_name, parent__name=drawer_name,
+                            parent__parent__name=freezer_name, parent__parent__parent__name=room_name
+                        ).first()
+                        if not storage_place:
+                            errors.append(f"Row {current_row_idx}: Exact path not found.")
+                            continue
+
+                    elif drawer_name:
+                        # ... existing drawer logic ...
+                        pass
+
+                    elif freezer_name:
+                        # ... existing freezer logic ...
+                        pass
+
+                    elif room_name:
+                        storage_place = StoragePlace.objects.filter(name=room_name).first()
+                        if not storage_place:
+                            errors.append(f"Row {current_row_idx}: Room '{room_name}' not found.")
+                            continue
+                    # ==========================================
+
+                    # CORRECT INDENTATION (Aligned with 'if box_name:')
+                    # Create Sample
+                    sample = PCRSample(
+                        mikrogen_internal_number=mikrogen_id,
+                        provider_number=str(row.get('Provider Number', '')).strip() if str(
+                            row.get('Provider Number', '')).strip().lower() != 'nan' else None,
+                        provider=provider,
+                        target=target,
+                        sample_type=sample_type,
+                        mikrogen_pcr_kit=mk_kit,
+                        external_pcr_kit=ex_kit,
+                        storage_place=storage_place,  # Stores the final found location
+                        sample_volume=numeric_vol,
+                        sample_volume_remaining=numeric_vol,
+                        volume_unit=volume_unit,
+                        added_by=request.user,
+                        positive_for=row.get('Positive For') if pd.notna(row.get('Positive For')) else None,
+                        negative_for=row.get('Negative For') if pd.notna(row.get('Negative For')) else None,
+                        notes=row.get('Notes') if pd.notna(row.get('Notes')) else None,
+                        country_of_origin=row.get('Country of Origin') if pd.notna(
+                            row.get('Country of Origin')) else None,
+                    )
+
+                    # Handle Age
+                    if pd.notna(row.get('Age')):
                         try:
-                            # Handle date fields first
-                            if field in ['extraction_date'] and isinstance(value, str):
-                                value = pd.to_datetime(value).date()
-                                setattr(sample, field, value)
-                                continue
+                            sample.age = int(row.get('Age'))
+                        except:
+                            pass
 
-                            # Handle gender
-                            if field == 'gender' and isinstance(value, str) and value.lower() in ['m', 'f']:
-                                value = 'male' if value.lower() == 'm' else 'female'
+                    # Handle CT Values
+                    if pd.notna(row.get('CT Value (Mikrogen)')):
+                        sample.mikrogen_ct_value = float(row.get('CT Value (Mikrogen)'))
+                    if pd.notna(row.get('CT Value (External)')):
+                        sample.external_ct_value = float(row.get('CT Value (External)'))
 
-                            # Handle numeric fields
-                            elif field in ['age', 'mikrogen_ct_value', 'external_ct_value']:
-                                if isinstance(value, str):
-                                    value = float(value) if '.' in value else int(value)
+                    # Handle Dates
+                    if pd.notna(row.get('Date of Draw')):
+                        try:
+                            sample.date_of_draw = pd.to_datetime(row.get('Date of Draw')).date()
+                        except:
+                            pass
+                    if pd.notna(row.get('Extraction Date')):
+                        try:
+                            sample.extraction_date = pd.to_datetime(row.get('Extraction Date')).date()
+                        except:
+                            pass
 
-                            # Skip ForeignKey fields
-                            elif field in ['extractor', 'cycler', 'mikrogen_pcr_kit', 'external_pcr_kit']:
-                                continue
+                    sample.save()
+                    samples_created += 1
 
-                            else:
-                                setattr(sample, field, value)
-                        except (ValueError, AttributeError):
-                            pass  # Skip invalid values
-
-                sample.save()
-                samples_created += 1
-
-            # Clean up temp file at the end
-            if temp_file_path and os.path.exists(temp_file_path):
+                # Cleanup
                 os.remove(temp_file_path)
 
-            # Return appropriate response based on errors
-            if errors:
-                request.session['import_errors'] = errors
-                messages.warning(request, f"""Imported {samples_created} samples with {len(errors)} errors.
-                    {', '.join(errors[:3])}
-                    <button onclick="showAllErrors()" class="show-all-errors">
-                        ... and {len(errors) - 3} more errors (click to view all)
-                    </button>""", extra_tags='safe')
-            else:
-                messages.success(request, f"Successfully imported {samples_created} samples.")
+                if errors:
+                    request.session['import_errors'] = errors
+                    messages.warning(request,
+                                     f"Imported {samples_created} samples with {len(errors)} errors. Check the logs.")
+                else:
+                    messages.success(request, f"Successfully imported {samples_created} samples.")
 
-            return redirect('core:inventory')
+                return redirect('core:inventory')
 
-        except Exception as e:
-            print(f"DEBUG: Import failed with error: {str(e)}")
-            print(f"DEBUG: Error type: {type(e)}")
-            import traceback
-            traceback.print_exc()
-
-            # Clean up temp file in case of error
-            if temp_file_path and os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
-            if "violates unique constraint" in str(e) and "mikrogen_internal_number" in str(e):
-                import re
-                match = re.search(r'\(mikrogen_internal_number\)=\(([^)]+)\)', str(e))
-                number = match.group(1) if match else "unknown"
-                messages.error(request, f"Sample with Mikrogen Internal Number '{number}' already exists in the database.")
-            else:
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
                 messages.error(request, f"Import failed: {str(e)}")
-            return redirect('core:import')
+                return redirect('core:import')
 
     return render(request, 'core/import.html')
 

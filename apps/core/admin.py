@@ -15,7 +15,6 @@ class CustomUserAdmin(UserAdmin):
     search_fields = ('username', 'first_name', 'last_name', 'email')
     ordering = ('username',)
 
-    # Make password change more prominent
     fieldsets = UserAdmin.fieldsets + (
         ('Password Management', {
             'fields': (),
@@ -24,15 +23,14 @@ class CustomUserAdmin(UserAdmin):
     )
 
 
-# Re-register User with custom admin
 admin.site.unregister(User)
 admin.site.register(User, CustomUserAdmin)
 
 
-# Only register Usage Logs from your core models
 @admin.register(UsageLog)
 class UsageLogAdmin(admin.ModelAdmin):
-    list_display = ('sample', 'user', 'checkout_date', 'return_date', 'volume_used', 'notes')
+    # Added volume_unit so you can see exactly what was deducted!
+    list_display = ('sample', 'user', 'checkout_date', 'return_date', 'volume_used', 'volume_unit', 'notes')
     list_filter = ('checkout_date', 'return_date', 'user')
     search_fields = ('sample__mikrogen_internal_number', 'user__username', 'notes')
     date_hierarchy = 'checkout_date'
@@ -40,73 +38,52 @@ class UsageLogAdmin(admin.ModelAdmin):
     list_per_page = 50
 
 
-# PCRSample admin for adding new columns and managing samples
 @admin.register(PCRSample)
 class PCRSampleAdmin(admin.ModelAdmin):
+    # Added volume_unit and active_use to the overview columns
     list_display = (
-        'mikrogen_internal_number',
-        'provider_number',
-        'provider',
-        'target',
-        'sample_type',
-        'storage_place',
-        'date_of_draw',
-        'sample_volume',
-        'sample_volume_remaining',
-        'in_use',
-        'current_user',
-        'date_added'
+        'mikrogen_internal_number', 'provider_number', 'provider', 'target',
+        'sample_type', 'storage_place', 'sample_volume', 'sample_volume_remaining',
+        'volume_unit', 'in_use', 'active_use', 'current_user'
     )
+
+    # Added volume_unit and active_use to the sidebar filters
     list_filter = (
-        'in_use',
-        'not_found',
-        'target',
-        'sample_type',
-        'provider',
-        'storage_place',
-        'gender',
-        'extractor',
-        'cycler'
+        'in_use', 'active_use', 'not_found', 'volume_unit', 'target',
+        'sample_type', 'provider', 'storage_place', 'extractor', 'cycler'
     )
+
     search_fields = (
-        'mikrogen_internal_number',
-        'provider_number',
-        'country_of_origin',
-        'notes'
+        'mikrogen_internal_number', 'provider_number', 'country_of_origin', 'notes', 'positive_for', 'negative_for'
     )
+
     date_hierarchy = 'date_added'
     readonly_fields = ('date_added', 'last_modified')
     list_per_page = 50
 
-    # Enable editing all fields
-    fields = (
-        'mikrogen_internal_number',
-        'provider_number',
-        'provider',
-        'target',
-        'sample_type',
-        'storage_place',
-        'date_of_draw',
-        'age',
-        'gender',
-        'country_of_origin',
-        'extraction_date',
-        'extractor',
-        'cycler',
-        'mikrogen_pcr_kit',
-        'external_pcr_kit',
-        'mikrogen_ct_value',
-        'external_ct_value',
-        'sample_volume',
-        'sample_volume_remaining',
-        'notes',
-        'in_use',
-        'not_found',
-        'current_user',
-        'date_added',
-        'last_modified'
+    # Fieldsets create beautiful visual sections in the admin edit page!
+    fieldsets = (
+        ('Core Identifiers', {
+            'fields': ('mikrogen_internal_number', 'provider_number', 'target', 'storage_place')
+        }),
+        ('Target Status', {
+            'fields': ('positive_for', 'negative_for')
+        }),
+        ('Sample & Patient Demographics', {
+            'fields': ('provider', 'sample_type', 'date_of_draw', 'age', 'gender', 'country_of_origin')
+        }),
+        ('Lab Processing', {
+            'fields': (
+            'extraction_date', 'extractor', 'cycler', 'mikrogen_pcr_kit', 'external_pcr_kit', 'mikrogen_ct_value',
+            'external_ct_value')
+        }),
+        ('Inventory & Volumes', {
+            'fields': ('sample_volume', 'sample_volume_remaining', 'volume_unit', 'notes')
+        }),
+        ('System Tracking', {
+            'fields': ('current_user', 'in_use', 'active_use', 'not_found', 'added_by')
+        }),
+        ('Timestamps', {
+            'fields': ('date_added', 'last_modified')
+        }),
     )
-
-# Remove all the simple model registrations you don't need
-# Don't register: Provider, Target, SampleType, StoragePlace, Extractor, Cycler, PCRKit
-# These are managed through your Settings page instead

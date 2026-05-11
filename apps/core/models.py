@@ -6,6 +6,9 @@ class Provider(models.Model):
     """Model for sample providers"""
     name = models.CharField(max_length=100, unique=True)
 
+    class Meta:
+        ordering = ['name']
+
     def __str__(self):
         return self.name
 
@@ -14,6 +17,9 @@ class Target(models.Model):
     """Model for PCR targets"""
     name = models.CharField(max_length=100, unique=True)
 
+    class Meta:
+        ordering = ['name']
+
     def __str__(self):
         return self.name
 
@@ -21,6 +27,9 @@ class Target(models.Model):
 class SampleType(models.Model):
     """Model for sample types"""
     name = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        ordering = ['name']
 
     def __str__(self):
         return self.name
@@ -37,6 +46,7 @@ class PCRKit(models.Model):
 
     class Meta:
         unique_together = ['name', 'type']
+        ordering = ['name']
 
     def __str__(self):
         return f"{self.name} ({self.get_type_display()})"
@@ -54,12 +64,18 @@ class StoragePlace(models.Model):
     type = models.CharField(max_length=20, choices=STORAGE_TYPES)
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='children')
 
+    class Meta:
+        ordering = ['name']
+
     def __str__(self):
         return self.name
 
 class Extractor(models.Model):
     """Model for extractors"""
     name = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        ordering = ['name']
 
     def __str__(self):
         return self.name
@@ -68,6 +84,9 @@ class Extractor(models.Model):
 class Cycler(models.Model):
     """Model for PCR cyclers"""
     name = models.CharField(max_length=100, unique=True)
+
+    class Meta:
+        ordering = ['name']
 
     def __str__(self):
         return self.name
@@ -111,8 +130,14 @@ class PCRSample(models.Model):
     external_ct_value = models.FloatField(blank=True, null=True)
 
     # Volume tracking
-    sample_volume = models.FloatField(help_text="Sample volume in ml")
-    sample_volume_remaining = models.FloatField(help_text="Remaining sample volume in ml")
+    VOLUME_UNITS = (
+        ('uL', 'Microliters (µL)'),
+        ('mL', 'Milliliters (mL)'),
+        ('L', 'Liters (L)'),
+    )
+    sample_volume = models.FloatField(help_text="Initial sample volume")
+    sample_volume_remaining = models.FloatField(help_text="Remaining sample volume")
+    volume_unit = models.CharField(max_length=2, choices=VOLUME_UNITS, default='mL')
 
     # Usage tracking
     current_user = models.ForeignKey(User, on_delete=models.SET_NULL,
@@ -142,13 +167,40 @@ class PCRSample(models.Model):
         self.in_use = True
         self.save()
 
-    def mark_finished(self, volume_used=0):
+    def mark_finished(self, volume_used=0, deduction_unit='mL'):
+        """
+        Clears the user and deducts volume, automatically converting
+        the deduction unit to match the stored volume_unit.
+        """
         self.current_user = None
         self.in_use = False
+        self.active_use = False  # Good practice to clear this too
+
         if volume_used > 0:
-            self.sample_volume_remaining -= volume_used
+            actual_deduction = volume_used
+
+            # Unit Conversion Logic
+            if self.volume_unit == 'mL' and deduction_unit == 'uL':
+                actual_deduction = volume_used / 1000.0
+            elif self.volume_unit == 'mL' and deduction_unit == 'L':
+                actual_deduction = volume_used * 1000.0
+
+            elif self.volume_unit == 'uL' and deduction_unit == 'mL':
+                actual_deduction = volume_used * 1000.0
+            elif self.volume_unit == 'uL' and deduction_unit == 'L':
+                actual_deduction = volume_used * 1000000.0
+
+            elif self.volume_unit == 'L' and deduction_unit == 'mL':
+                actual_deduction = volume_used / 1000.0
+            elif self.volume_unit == 'L' and deduction_unit == 'uL':
+                actual_deduction = volume_used / 1000000.0
+
+            self.sample_volume_remaining -= actual_deduction
+
+            # Prevent negative volumes
             if self.sample_volume_remaining < 0:
                 self.sample_volume_remaining = 0
+
         self.save()
 
     @property
@@ -162,6 +214,7 @@ class UsageLog(models.Model):
     sample = models.ForeignKey(PCRSample, on_delete=models.CASCADE, related_name='usage_logs')
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     volume_used = models.FloatField(default=0)
+    volume_unit = models.CharField(max_length=2, choices=PCRSample.VOLUME_UNITS, default='mL')
     checkout_date = models.DateTimeField(auto_now_add=True)
     active_use_date = models.DateTimeField(null=True, blank=True)
     not_found = models.BooleanField(default=False)
