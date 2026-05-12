@@ -1469,245 +1469,162 @@ def download_template(request):
             os.remove(temp_path)
         return redirect('core:inventory')
 
+
 @login_required
 def import_samples(request):
-    temp_dir = tempfile.gettempdir()
+    if request.method == 'POST' and request.FILES.get('excel_file'):
+        excel_file = request.FILES['excel_file']
 
-    if request.method == 'POST':
-        # ==========================================
-        # PHASE 1: THE PRE-SCAN (Initial File Upload)
-        # ==========================================
-        if request.FILES.get('excel_file'):
-            excel_file = request.FILES['excel_file']
-            if not excel_file.name.endswith(('.xls', '.xlsx')):
-                messages.error(request, "Uploaded file is not an Excel file.")
+        if not excel_file.name.endswith(('.xls', '.xlsx')):
+            messages.error(request, "Uploaded file is not an Excel file.")
+            return redirect('core:import')
+
+        errors = []
+        samples_created = 0
+
+        try:
+            # Read the file directly from memory (Fixes the Render Cloud bug!)
+            df = pd.read_excel(excel_file)
+
+            # Check Mandatory Columns
+            required_cols = [
+                'Mikrogen Internal Number', 'Provider Number', 'Provider',
+                'Target', 'Sample Type', 'Sample Volume'
+            ]
+            missing_columns = [col for col in required_cols if col not in df.columns]
+            if missing_columns:
+                messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
                 return redirect('core:import')
 
-            fs = FileSystemStorage(location=temp_dir)
-            filename = fs.save(f"excel_import_{request.user.id}.xlsx", excel_file)
-            temp_file_path = fs.path(filename)
+            # ==========================================
+            # YOUR CUSTOM LOGIC STARTS HERE
+            # ==========================================
+            for index, row in df.iterrows():
+                current_row_idx = index + 2
 
-            try:
-                df = pd.read_excel(temp_file_path)
+                mikrogen_id = str(row.get('Mikrogen Internal Number', '')).strip()
+                if mikrogen_id.lower() == 'nan' or not mikrogen_id:
+                    errors.append(f"Row {current_row_idx}: ID is missing.")
+                    continue
+                if PCRSample.objects.filter(mikrogen_internal_number=mikrogen_id).exists():
+                    errors.append(f"Row {current_row_idx}: ID '{mikrogen_id}' already exists.")
+                    continue
 
-                # Check Mandatory Columns (Storage columns are optional so they aren't here)
-                required_cols = [
-                    'Mikrogen Internal Number', 'Provider Number', 'Provider',
-                    'Target', 'Sample Type', 'Sample Volume'
-                ]
-                missing_columns = [col for col in required_cols if col not in df.columns]
-                if missing_columns:
-                    os.remove(temp_file_path)
-                    messages.error(request, f"Missing required columns: {', '.join(missing_columns)}")
-                    return redirect('core:import')
+                # Auto-Create approved settings
+                provider, _ = Provider.objects.get_or_create(name=str(row.get('Provider', '')).strip())
+                target, _ = Target.objects.get_or_create(name=str(row.get('Target', '')).strip())
+                sample_type, _ = SampleType.objects.get_or_create(name=str(row.get('Sample Type', '')).strip())
 
-                # Scan for missing settings
-                missing_data = {
-                    'providers': set(), 'targets': set(), 'sample_types': set(),
-                    'mk_kits': set(), 'ex_kits': set()
-                }
+                mk_kit, ex_kit = None, None
+                mk_name = str(row.get('PCR Kit (Mikrogen)', '')).strip()
+                if mk_name and mk_name.lower() != 'nan':
+                    mk_kit, _ = PCRKit.objects.get_or_create(name=mk_name, type='mikrogen')
 
-                for _, row in df.iterrows():
-                    p_name = str(row.get('Provider', '')).strip()
-                    if p_name and p_name.lower() != 'nan' and not Provider.objects.filter(name=p_name).exists():
-                        missing_data['providers'].add(p_name)
+                ex_name = str(row.get('PCR Kit (External)', '')).strip()
+                if ex_name and ex_name.lower() != 'nan':
+                    ex_kit, _ = PCRKit.objects.get_or_create(name=ex_name, type='external')
 
-                    t_name = str(row.get('Target', '')).strip()
-                    if t_name and t_name.lower() != 'nan' and not Target.objects.filter(name=t_name).exists():
-                        missing_data['targets'].add(t_name)
+                # Parse Volume (Your smart splitter)
+                vol_raw = str(row.get('Sample Volume', '')).strip().lower()
+                volume_unit = 'uL' if 'ul' in vol_raw or 'µl' in vol_raw else 'mL'
+                try:
+                    numeric_vol = float(re.sub(r'[^\d.]', '', vol_raw))
+                except ValueError:
+                    errors.append(f"Row {current_row_idx}: Invalid Volume format.")
+                    continue
 
-                    s_name = str(row.get('Sample Type', '')).strip()
-                    if s_name and s_name.lower() != 'nan' and not SampleType.objects.filter(name=s_name).exists():
-                        missing_data['sample_types'].add(s_name)
+                # The 4-Column Storage Mapper
+                storage_place = None
+                room_name = str(row.get('Storage: Room', '')).strip()
+                freezer_name = str(row.get('Storage: Freezer', '')).strip()
+                drawer_name = str(row.get('Storage: Drawer', '')).strip()
+                box_name = str(row.get('Storage: Box', '')).strip()
 
-                    mk_name = str(row.get('PCR Kit (Mikrogen)', '')).strip()
-                    if mk_name and mk_name.lower() != 'nan' and not PCRKit.objects.filter(name=mk_name,
-                                                                                          type='mikrogen').exists():
-                        missing_data['mk_kits'].add(mk_name)
+                room_name = room_name if room_name.lower() != 'nan' else ''
+                freezer_name = freezer_name if freezer_name.lower() != 'nan' else ''
+                drawer_name = drawer_name if drawer_name.lower() != 'nan' else ''
+                box_name = box_name if box_name.lower() != 'nan' else ''
 
-                    ex_name = str(row.get('PCR Kit (External)', '')).strip()
-                    if ex_name and ex_name.lower() != 'nan' and not PCRKit.objects.filter(name=ex_name,
-                                                                                          type='external').exists():
-                        missing_data['ex_kits'].add(ex_name)
-
-                has_missing = any(len(v) > 0 for v in missing_data.values())
-
-                if has_missing:
-                    return render(request, 'core/import.html', {
-                        'missing_data': missing_data,
-                        'temp_file_path': temp_file_path,
-                        'show_modal': True
-                    })
-                else:
-                    request.POST = request.POST.copy()
-                    request.POST['confirm_import'] = 'true'
-                    request.POST['temp_file_path'] = temp_file_path
-
-            except Exception as e:
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
-                messages.error(request, f"Error reading file: {str(e)}")
-                return redirect('core:import')
-
-        # ==========================================
-        # PHASE 2: THE FINAL IMPORT (After Confirmation)
-        # ==========================================
-        if 'confirm_import' in request.POST:
-            temp_file_path = request.POST.get('temp_file_path')
-            if not temp_file_path or not os.path.exists(temp_file_path):
-                messages.error(request, "Import session expired. Please upload the file again.")
-                return redirect('core:import')
-
-            errors = []
-            samples_created = 0
-
-            try:
-                df = pd.read_excel(temp_file_path)
-
-                for index, row in df.iterrows():
-                    current_row_idx = index + 2
-
-                    mikrogen_id = str(row.get('Mikrogen Internal Number', '')).strip()
-                    if mikrogen_id.lower() == 'nan' or not mikrogen_id:
-                        errors.append(f"Row {current_row_idx}: ID is missing.")
+                if box_name:
+                    storage_place = StoragePlace.objects.filter(
+                        name=box_name, parent__name=drawer_name,
+                        parent__parent__name=freezer_name, parent__parent__parent__name=room_name
+                    ).first()
+                    if not storage_place:
+                        errors.append(f"Row {current_row_idx}: Exact box path not found.")
                         continue
-                    if PCRSample.objects.filter(mikrogen_internal_number=mikrogen_id).exists():
-                        errors.append(f"Row {current_row_idx}: ID '{mikrogen_id}' already exists.")
+                elif drawer_name:
+                    storage_place = StoragePlace.objects.filter(
+                        name=drawer_name, parent__name=freezer_name, parent__parent__name=room_name
+                    ).first()
+                elif freezer_name:
+                    storage_place = StoragePlace.objects.filter(
+                        name=freezer_name, parent__name=room_name
+                    ).first()
+                elif room_name:
+                    storage_place = StoragePlace.objects.filter(name=room_name).first()
+                    if not storage_place and room_name:
+                        errors.append(f"Row {current_row_idx}: Room '{room_name}' not found.")
                         continue
 
-                    # Auto-Create approved settings
-                    provider, _ = Provider.objects.get_or_create(name=str(row.get('Provider', '')).strip())
-                    target, _ = Target.objects.get_or_create(name=str(row.get('Target', '')).strip())
-                    sample_type, _ = SampleType.objects.get_or_create(name=str(row.get('Sample Type', '')).strip())
+                # Create Sample
+                sample = PCRSample(
+                    mikrogen_internal_number=mikrogen_id,
+                    provider_number=str(row.get('Provider Number', '')).strip() if str(
+                        row.get('Provider Number', '')).strip().lower() != 'nan' else None,
+                    provider=provider,
+                    target=target,
+                    sample_type=sample_type,
+                    mikrogen_pcr_kit=mk_kit,
+                    external_pcr_kit=ex_kit,
+                    storage_place=storage_place,
+                    sample_volume=numeric_vol,
+                    sample_volume_remaining=numeric_vol,
+                    volume_unit=volume_unit,
+                    added_by=request.user,
+                    positive_for=row.get('Positive For') if pd.notna(row.get('Positive For')) else None,
+                    negative_for=row.get('Negative For') if pd.notna(row.get('Negative For')) else None,
+                    notes=row.get('Notes') if pd.notna(row.get('Notes')) else None,
+                    country_of_origin=row.get('Country of Origin') if pd.notna(row.get('Country of Origin')) else None,
+                )
 
-                    mk_kit, ex_kit = None, None
-                    mk_name = str(row.get('PCR Kit (Mikrogen)', '')).strip()
-                    if mk_name and mk_name.lower() != 'nan':
-                        mk_kit, _ = PCRKit.objects.get_or_create(name=mk_name, type='mikrogen')
-
-                    ex_name = str(row.get('PCR Kit (External)', '')).strip()
-                    if ex_name and ex_name.lower() != 'nan':
-                        ex_kit, _ = PCRKit.objects.get_or_create(name=ex_name, type='external')
-
-                    # Parse Volume
-                    vol_raw = str(row.get('Sample Volume', '')).strip().lower()
-                    volume_unit = 'uL' if 'ul' in vol_raw or 'µl' in vol_raw else 'mL'
+                if pd.notna(row.get('Age')):
                     try:
-                        numeric_vol = float(re.sub(r'[^\d.]', '', vol_raw))
-                    except ValueError:
-                        errors.append(f"Row {current_row_idx}: Invalid Volume format.")
-                        continue
-
-                    # ==========================================
-                    # NEW LOGIC: THE 4-COLUMN STORAGE MAPPER
-                    # ==========================================
-                    storage_place = None
-                    room_name = str(row.get('Storage: Room', '')).strip()
-                    freezer_name = str(row.get('Storage: Freezer', '')).strip()
-                    drawer_name = str(row.get('Storage: Drawer', '')).strip()
-                    box_name = str(row.get('Storage: Box', '')).strip()
-
-                    # Clean up 'nan' from empty Excel cells
-                    room_name = room_name if room_name.lower() != 'nan' else ''
-                    freezer_name = freezer_name if freezer_name.lower() != 'nan' else ''
-                    drawer_name = drawer_name if drawer_name.lower() != 'nan' else ''
-                    box_name = box_name if box_name.lower() != 'nan' else ''
-
-                    # Search progressively based on how much data they provided
-                    if box_name:
-                        storage_place = StoragePlace.objects.filter(
-                            name=box_name, parent__name=drawer_name,
-                            parent__parent__name=freezer_name, parent__parent__parent__name=room_name
-                        ).first()
-                        if not storage_place:
-                            errors.append(f"Row {current_row_idx}: Exact path not found.")
-                            continue
-
-                    elif drawer_name:
-                        # ... existing drawer logic ...
+                        sample.age = int(row.get('Age'))
+                    except:
+                        pass
+                if pd.notna(row.get('CT Value (Mikrogen)')):
+                    sample.mikrogen_ct_value = float(row.get('CT Value (Mikrogen)'))
+                if pd.notna(row.get('CT Value (External)')):
+                    sample.external_ct_value = float(row.get('CT Value (External)'))
+                if pd.notna(row.get('Date of Draw')):
+                    try:
+                        sample.date_of_draw = pd.to_datetime(row.get('Date of Draw')).date()
+                    except:
+                        pass
+                if pd.notna(row.get('Extraction Date')):
+                    try:
+                        sample.extraction_date = pd.to_datetime(row.get('Extraction Date')).date()
+                    except:
                         pass
 
-                    elif freezer_name:
-                        # ... existing freezer logic ...
-                        pass
+                sample.save()
+                samples_created += 1
 
-                    elif room_name:
-                        storage_place = StoragePlace.objects.filter(name=room_name).first()
-                        if not storage_place:
-                            errors.append(f"Row {current_row_idx}: Room '{room_name}' not found.")
-                            continue
-                    # ==========================================
+            if errors:
+                request.session['import_errors'] = errors
+                messages.warning(request,
+                                 f"Imported {samples_created} samples with {len(errors)} errors. Check the logs.")
+            else:
+                messages.success(request, f"Successfully imported {samples_created} samples.")
 
-                    # CORRECT INDENTATION (Aligned with 'if box_name:')
-                    # Create Sample
-                    sample = PCRSample(
-                        mikrogen_internal_number=mikrogen_id,
-                        provider_number=str(row.get('Provider Number', '')).strip() if str(
-                            row.get('Provider Number', '')).strip().lower() != 'nan' else None,
-                        provider=provider,
-                        target=target,
-                        sample_type=sample_type,
-                        mikrogen_pcr_kit=mk_kit,
-                        external_pcr_kit=ex_kit,
-                        storage_place=storage_place,  # Stores the final found location
-                        sample_volume=numeric_vol,
-                        sample_volume_remaining=numeric_vol,
-                        volume_unit=volume_unit,
-                        added_by=request.user,
-                        positive_for=row.get('Positive For') if pd.notna(row.get('Positive For')) else None,
-                        negative_for=row.get('Negative For') if pd.notna(row.get('Negative For')) else None,
-                        notes=row.get('Notes') if pd.notna(row.get('Notes')) else None,
-                        country_of_origin=row.get('Country of Origin') if pd.notna(
-                            row.get('Country of Origin')) else None,
-                    )
+            return redirect('core:inventory')
 
-                    # Handle Age
-                    if pd.notna(row.get('Age')):
-                        try:
-                            sample.age = int(row.get('Age'))
-                        except:
-                            pass
-
-                    # Handle CT Values
-                    if pd.notna(row.get('CT Value (Mikrogen)')):
-                        sample.mikrogen_ct_value = float(row.get('CT Value (Mikrogen)'))
-                    if pd.notna(row.get('CT Value (External)')):
-                        sample.external_ct_value = float(row.get('CT Value (External)'))
-
-                    # Handle Dates
-                    if pd.notna(row.get('Date of Draw')):
-                        try:
-                            sample.date_of_draw = pd.to_datetime(row.get('Date of Draw')).date()
-                        except:
-                            pass
-                    if pd.notna(row.get('Extraction Date')):
-                        try:
-                            sample.extraction_date = pd.to_datetime(row.get('Extraction Date')).date()
-                        except:
-                            pass
-
-                    sample.save()
-                    samples_created += 1
-
-                # Cleanup
-                os.remove(temp_file_path)
-
-                if errors:
-                    request.session['import_errors'] = errors
-                    messages.warning(request,
-                                     f"Imported {samples_created} samples with {len(errors)} errors. Check the logs.")
-                else:
-                    messages.success(request, f"Successfully imported {samples_created} samples.")
-
-                return redirect('core:inventory')
-
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-                if os.path.exists(temp_file_path):
-                    os.remove(temp_file_path)
-                messages.error(request, f"Import failed: {str(e)}")
-                return redirect('core:import')
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            messages.error(request, f"Import failed: {str(e)}")
+            return redirect('core:import')
 
     return render(request, 'core/import.html')
 

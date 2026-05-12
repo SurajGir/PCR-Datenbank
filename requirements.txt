@@ -1,6 +1,8 @@
 asgiref==3.8.1
+diff-match-patch==20241021
 dj-database-url==3.1.2
 Django==5.1.7
+django-import-export==4.4.1
 et_xmlfile==2.0.0
 gunicorn==26.0.0
 numpy==2.2.3
@@ -13,6 +15,7 @@ python-dotenv==1.1.1
 pytz==2025.1
 six==1.17.0
 sqlparse==0.5.3
+tablib==3.9.0
 typing_extensions==4.12.2
 tzdata==2025.1
 whitenoise==6.12.0

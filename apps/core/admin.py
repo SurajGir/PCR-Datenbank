@@ -2,6 +2,8 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import User, Group
 from .models import UsageLog, PCRSample
+from import_export import resources
+from import_export.admin import ImportExportModelAdmin
 
 # Remove Groups - you don't need them
 admin.site.unregister(Group)
@@ -37,9 +39,15 @@ class UsageLogAdmin(admin.ModelAdmin):
     readonly_fields = ('checkout_date',)
     list_per_page = 50
 
+class PCRSampleResource(resources.ModelResource):
+    class Meta:
+        model = PCRSample
+        # This tells Django which column makes a sample "unique" so it doesn't duplicate
+        import_id_fields = ('mikrogen_internal_number',)
 
 @admin.register(PCRSample)
-class PCRSampleAdmin(admin.ModelAdmin):
+class PCRSampleAdmin(ImportExportModelAdmin):
+    resource_class = PCRSampleResource
     # Added volume_unit and active_use to the overview columns
     list_display = (
         'mikrogen_internal_number', 'provider_number', 'provider', 'target',
