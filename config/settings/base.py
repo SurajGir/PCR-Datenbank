@@ -28,7 +28,7 @@ DJANGO_APPS = [
 ]
 
 THIRD_PARTY_APPS = [
-    # Add third-party apps here
+    'import_export',  # <-- Add this line!
 ]
 
 LOCAL_APPS = [
